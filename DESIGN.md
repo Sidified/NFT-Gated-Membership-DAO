@@ -2,7 +2,9 @@
 
 ## Problem Statement
 **The Setting:** A community bootstrapping a DAO. A pre-verified list of contributors (the VIP list) claims free, soulbound membership NFTs that grant governance voting power. The NFT's appearance dynamically upgrades on-chain based on governance participation. Members govern a treasury via a standard propose -> vote -> timelock -> execute flow.
-**The Actors:** - *Eligible Claimant:* On the Merkle list. Signs EIP-712 claim message. Pays 0 gas.
+
+**The Actors:**
+- *Eligible Claimant:* On the Merkle list. Signs EIP-712 claim message. Pays 0 gas.
 - *Relayer:* Submits the claim transaction. Pays gas. No economic reward.
 - *Member:* Holds the NFT. Can propose, vote, and trigger queued executions.
 **What this protocol is NOT:** A tradeable ERC20 governance token, an upgradable system, or a fundraiser. 
