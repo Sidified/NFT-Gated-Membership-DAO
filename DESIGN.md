@@ -7,6 +7,7 @@
 - *Eligible Claimant:* On the Merkle list. Signs EIP-712 claim message. Pays 0 gas.
 - *Relayer:* Submits the claim transaction. Pays gas. No economic reward.
 - *Member:* Holds the NFT. Can propose, vote, and trigger queued executions.
+
 **What this protocol is NOT:** A tradeable ERC20 governance token, an upgradable system, or a fundraiser. 
 
 ## Architecture
