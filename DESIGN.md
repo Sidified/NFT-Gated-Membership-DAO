@@ -23,11 +23,13 @@
 - `mapping(uint256 tokenId => uint256 votesCast)` (Drives the dynamic SVG tier)
 - Token counter for sequential IDs.
 - Address of authorized minter (`MerkleClaim`).
+
 **MerkleClaim:**
 - `bytes32 immutable i_merkleRoot` (Set at deploy).
 - `address immutable i_membershipNFT`.
 - `mapping(address claimant => bool hasClaimed)` (Replay protection).
 - Standard EIP-712 domain state (including chainId and contract address).
+
 **GovernorContract & TimelockController:**
 - Standard OpenZeppelin state.
 
