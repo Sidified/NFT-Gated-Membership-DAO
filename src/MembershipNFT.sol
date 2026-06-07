@@ -88,7 +88,9 @@ contract MembershipNFT is ERC721Votes {
 
     /**
      * @notice Mints a new soulbound membership NFT to a verified contributor.
-     * @dev Automatically delegates voting power to the recipient to activate governance checkpoints.
+     * @dev Automatically delegates voting power on the first mint to activate governance checkpoints.
+     * For subsequent mints, it bypasses standard OpenZeppelin logic and manually injects the new
+     * voting power into the existing checkpoint ledger to prevent double-counting.
      * @param to The address of the verified contributor.
      * @param votingPower The amount of voting power the contributor earned.
      */
@@ -101,8 +103,14 @@ contract MembershipNFT is ERC721Votes {
         s_votingPower[tokenId] = votingPower;
         s_userVotingPower[to] += votingPower;
 
-        // Auto-delegate so voting power is live immediately
-        _delegate(to, to);
+        // Auto-delegate to self on first mint; subsequent mints inherit the delegation.
+        if (delegates(to) == address(0)) {
+            _delegate(to, to);
+        } else {
+            // Already delegated; manually move voting units to update the checkpoint
+            // since we've bypassed OZ's automatic _transferVotingUnits in _update and _increaseBalance.
+            _transferVotingUnits(address(0), to, votingPower);
+        }
 
         _safeMint(to, tokenId);
 
