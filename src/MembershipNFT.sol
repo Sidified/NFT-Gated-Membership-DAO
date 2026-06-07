@@ -263,7 +263,7 @@ contract MembershipNFT is ERC721Votes {
     function _getTier(uint256 votesCast) private pure returns (uint256) {
         if (votesCast == 0) return 0;
         if (votesCast <= 5) return 1;
-        if (votesCast <= 20) return 2; // Fixed to match the design doc
+        if (votesCast <= 20) return 2;
         return 3;
     }
 
@@ -282,9 +282,7 @@ contract MembershipNFT is ERC721Votes {
         if (tier == 2) {
             return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><circle cx="100" cy="100" r="80" fill="#9b59b6"/></svg>';
         }
-        if (tier == 3) {
-            return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><circle cx="100" cy="100" r="80" fill="#f1c40f"/></svg>';
-        }
+        return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><circle cx="100" cy="100" r="80" fill="#f1c40f"/></svg>';
     }
 
     /**
