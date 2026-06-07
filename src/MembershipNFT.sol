@@ -234,7 +234,10 @@ contract MembershipNFT is ERC721Votes {
             revert MembershipNFT__Soulbound();
         }
 
-        return super._update(to, tokenId, auth);
+        // Call ERC721._update directly, bypassing ERC721Votes._update which would
+        // add +1 to voting checkpoints via _transferVotingUnits. Voting power is
+        // managed exclusively by our custom s_userVotingPower mapping via _delegate.
+        return ERC721._update(to, tokenId, auth);
     }
 
     /**
@@ -246,11 +249,16 @@ contract MembershipNFT is ERC721Votes {
     }
 
     /**
-     * @notice Hook to update governance checkpoints when a token's balance changes.
-     * @dev Purely a pass-through to satisfy Solidity's Method Resolution Order for ERC721Votes.
+     * @notice Hook to update ERC721 token balances when a token is minted or transferred.
+     * @dev We explicitly bypass the ERC721Votes parent implementation and route directly
+     * to ERC721._increaseBalance. This prevents OpenZeppelin's internal machinery from
+     * automatically adding +1 voting unit to the governance checkpoints, as we handle
+     * custom voting weights manually during minting.
      */
     function _increaseBalance(address account, uint128 amount) internal override(ERC721Votes) {
-        super._increaseBalance(account, amount);
+        // Bypass Votes._increaseBalance which would add `amount` to voting checkpoints
+        // via _transferVotingUnits. Only update the ERC721 balance counter.
+        ERC721._increaseBalance(account, amount);
     }
 
     //// PRIVATE HELPERS ////
