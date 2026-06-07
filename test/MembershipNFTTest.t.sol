@@ -103,17 +103,95 @@ contract MembershipNFTTest is Test {
     // ========== mint Tests ============
     // ==================================
 
-    /*
-    test_Mint_OnlyMinterCanCall — non-minter reverts
-    test_Mint_MintsSequentialTokenIds — mint three NFTs, verify IDs are 0, 1, 2
-    test_Mint_RecordsVotingPower — getVotingPowerOf returns correct value
-    test_Mint_UpdatesUserVotingPower_SingleMint — getVotes returns correct value
-    test_Mint_UpdatesUserVotingPower_MultipleMintsToSameUser — voting power accumulates
-    test_Mint_AutoDelegates — getVotes is nonzero immediately, without manual delegate call
-    test_Mint_EmitsMintedEvent — verify event with correct params
-    test_Mint_RevertsOnZeroAddress and test_Mint_RevertsOnZeroVotingPower — split into two
-    That last one can be two separate tests since they exercise different error paths.
-    */
+    // non-minter reverts
+    function test_Mint_OnlyMinterCanCall() external {
+        vm.expectRevert(MembershipNFT.MembershipNFT__OnlyMinter.selector);
+        vm.prank(alice); // not the minter
+        nft.mint(bob, 10);
+    }
+
+    // mint three NFTs, verify IDs are 0, 1, 2
+    function test_Mint_MintsSequentialTokenIds() external {
+        vm.startPrank(minter);
+        nft.mint(alice, 5);
+        nft.mint(bob, 10);
+        nft.mint(charlie, 15);
+        vm.stopPrank();
+
+        assertEq(nft.ownerOf(0), alice, "Token 0 should be minted to Alice");
+        assertEq(nft.ownerOf(1), bob, "Token 1 should be minted to Bob");
+        assertEq(nft.ownerOf(2), charlie, "Token 2 should be minted to Charlie");
+    }
+
+    // getVotingPowerOf returns correct value
+    function test_Mint_RecordsVotingPower() external {
+        vm.prank(minter);
+        nft.mint(bob, 10);
+
+        assertEq(nft.getVotingPowerOf(0), 10, "Static voting power should be recorded in NFT");
+    }
+
+    // getVotes returns correct value
+    function test_Mint_UpdatesUserVotingPower_SingleMint() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        assertEq(nft.getVotes(alice), 10, "getVotes should reflect custom voting power, not NFT count");
+    }
+
+    // voting power accumulates
+    function test_Mint_UpdatesUserVotingPower_MultipleMintsToSameUser() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        vm.prank(minter);
+        nft.mint(alice, 20);
+
+        assertEq(nft.getVotingPowerOf(0), 10, "First token should hold 10 power");
+        assertEq(nft.getVotingPowerOf(1), 20, "Second token should hold 20 power");
+        assertEq(nft.getVotes(alice), 30, "Total voting power should accumulate to 30");
+    }
+
+    // explicitly prove the delegate target is set to the user
+    function test_Mint_AutoDelegates() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        // The auto-delegate guarantee: alice is delegated to herself.
+        // This proves the delegation explicitly, not just the side effect (nonzero votes).
+        assertEq(nft.delegates(alice), alice, "Alice should be auto-delegated to herself");
+    }
+
+    // verify that minting to Alice doesn't accidentally give power to Bob
+    function test_Mint_DoesNotAffectOtherUsers() external {
+        vm.startPrank(minter);
+        nft.mint(alice, 10);
+        nft.mint(bob, 25);
+        vm.stopPrank();
+
+        assertEq(nft.getVotes(alice), 10, "Alice's votes should not include Bob's");
+        assertEq(nft.getVotes(bob), 25, "Bob's votes should not include Alice's");
+    }
+
+    // verify event with correct params
+    function test_Mint_EmitsMintedEvent() external {
+        vm.expectEmit(true, true, false, true, address(nft));
+        emit MembershipNFT.Minted(alice, 0, 10);
+        vm.prank(minter);
+        nft.mint(alice, 10);
+    }
+
+    function test_Mint_RevertsOnZeroAddress() external {
+        vm.expectRevert(MembershipNFT.MembershipNFT__ZeroAddress.selector);
+        vm.prank(minter);
+        nft.mint(address(0), 10);
+    }
+
+    function test_Mint_RevertsOnZeroVotingPower() external {
+        vm.expectRevert(MembershipNFT.MembershipNFT__ZeroVotingPower.selector);
+        vm.prank(minter);
+        nft.mint(alice, 0);
+    }
 
     // ==================================
     // ====== recordVote Tests ==========
