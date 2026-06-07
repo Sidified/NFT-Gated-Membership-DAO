@@ -24,7 +24,6 @@ contract MembershipNFT is ERC721Votes {
     error MembershipNFT__GovernorAlreadySet();
     error MembershipNFT__ZeroAddress();
     error MembershipNFT__ZeroVotingPower();
-    error MembershipNFT__NoTierGreaterThanThree();
 
     //// STATE VARIABLES ////
     mapping(uint256 tokenId => uint256) private s_votingPower;
