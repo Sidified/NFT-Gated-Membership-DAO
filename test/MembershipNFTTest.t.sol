@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {MembershipNFT} from "../src/MembershipNFT.sol";
+import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 contract MembershipNFTTest is Test {
     // Setup
@@ -197,13 +198,59 @@ contract MembershipNFTTest is Test {
     // ====== recordVote Tests ==========
     // ==================================
 
-    /*
-    test_RecordVote_OnlyGovernorCanCall — non-governor reverts
-    test_RecordVote_IncrementsVotesCast — single call: votesCast goes from 0 to 1
-    test_RecordVote_AccumulatesAcrossMultipleCalls — 5 calls → votesCast == 5
-    test_RecordVote_EmitsVoteRecordedEvent — verify event
-    test_RecordVote_RevertsOnNonexistentToken — try to record vote for tokenId 999, should revert via _requireOwned
-    */
+    // non-governor reverts
+    function test_RecordVote_OnlyGovernorCanCall() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        vm.expectRevert(MembershipNFT.MembershipNFT__OnlyGovernor.selector);
+        vm.prank(alice); // even alice (the token owner) can't call this
+        nft.recordVote(0);
+    }
+
+    // single call: votesCast goes from 0 to 1
+    function test_RecordVote_IncrementsVotesCast() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        vm.prank(governor);
+        nft.recordVote(0);
+
+        assertEq(nft.getVotesCastOf(0), 1, "votesCast should be 1 after single recordVote");
+    }
+
+    // single call: votesCast goes from 0 to 1
+    function test_RecordVote_AccumulatesAcrossMultipleCalls() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        vm.startPrank(governor);
+        for (uint256 i = 0; i < 5; i++) {
+            nft.recordVote(0);
+        }
+        vm.stopPrank();
+
+        assertEq(nft.getVotesCastOf(0), 5, "votesCast should accumulate to 5");
+    }
+
+    // verify event
+    function test_RecordVote_EmitsVoteRecordedEvent() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        vm.expectEmit(true, false, false, true, address(nft));
+        emit MembershipNFT.VoteRecorded(0, 1); // tokenId 0, newVotesCast 1
+
+        vm.prank(governor);
+        nft.recordVote(0);
+    }
+
+    // try to record vote for tokenId 999, should revert via _requireOwned
+    function test_RecordVote_RevertsOnNonexistentToken() external {
+        vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 999));
+        vm.prank(governor);
+        nft.recordVote(999);
+    }
 
     // ==================================
     // ======= Soulbound Tests ==========
