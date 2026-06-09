@@ -296,12 +296,50 @@ contract MembershipNFTTest is Test {
     // ==== ERC721Votes Integration =====
     // ==================================
 
-    /*
-    test_Votes_GetVotesReflectsVotingPower — mint with power=10, getVotes returns 10
-    test_Votes_GetVotesSumsAcrossMultipleNFTs — mint two NFTs (power 10 and 15) to alice, getVotes returns 25
-    test_Votes_GetPastVotesAtHistoricalBlock — mint, advance block, mint again, getPastVotes at earlier block returns earlier voting power
-    test_Votes_VotingPowerIndependentOfBalanceOf — mint power=100 NFT, verify balanceOf returns 1 (not 100). This catches the bug where someone thinks ERC721Votes uses balanceOf.
-    */
+    // mint, advance block, mint again, getPastVotes at earlier block returns earlier voting power
+    function test_Votes_GetPastVotesAtHistoricalBlock() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+        uint256 mintBlock1 = block.number;
+
+        vm.roll(10);
+        vm.prank(minter);
+        nft.mint(alice, 20);
+        uint256 mintBlock2 = block.number;
+
+        vm.roll(20);
+        vm.prank(minter);
+        nft.mint(alice, 30);
+        uint256 mintBlock3 = block.number;
+
+        // Advance the block so mintBlock3 is now officially in the past
+        vm.roll(mintBlock3 + 1);
+
+        assertEq(nft.getPastVotes(alice, mintBlock1), 10, "votes at first mint block should be 10");
+        assertEq(nft.getPastVotes(alice, mintBlock2), 30, "votes at second mint block should be 30");
+        assertEq(nft.getPastVotes(alice, mintBlock3), 60, "votes at third mint block should be 60");
+
+        // At block 5 (between mint 1 and mint 2), the most recent checkpoint is mint 1.
+        // OZ returns the most recent value at-or-before the queried block.
+        assertEq(nft.getPastVotes(alice, 5), 10, "votes between mints should reflect prior checkpoint");
+    }
+
+    // mint power=100 NFT, verify balanceOf returns 1 (not 100). This catches the bug where someone thinks ERC721Votes uses balanceOf.
+    function test_Votes_VotingPowerIndependentOfBalanceOf() external {
+        vm.prank(minter);
+        nft.mint(alice, 100);
+
+        assertEq(nft.balanceOf(alice), 1, "balanceOf should be 1 (one NFT)");
+        assertEq(nft.getVotes(alice), 100, "getVotes should be 100 (custom voting power)");
+    }
+
+    function test_Votes_GetPastVotesRevertsOnCurrentBlock() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        vm.expectRevert(); // OZ's ERC5805FutureLookup; using bare expectRevert for simplicity
+        nft.getPastVotes(alice, block.number);
+    }
 
     // ==================================
     // ======== tokenURI Tests ==========
