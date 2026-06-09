@@ -256,11 +256,41 @@ contract MembershipNFTTest is Test {
     // ======= Soulbound Tests ==========
     // ==================================
 
-    /*
-    test_Soulbound_TransferReverts — mint to alice, alice tries to transfer to bob, reverts
-    test_Soulbound_SafeTransferFromReverts — same but via safeTransferFrom
-    test_Soulbound_ApprovalDoesNotEnableTransfer — alice approves bob, bob calls transferFrom, still reverts
-    */
+    // mint to alice, alice tries to transfer to bob, reverts
+    function test_Soulbound_TransferReverts() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        vm.prank(alice);
+        vm.expectRevert(MembershipNFT.MembershipNFT__Soulbound.selector);
+        nft.transferFrom(alice, bob, 0);
+    }
+
+    // same but via safeTransferFrom
+    function test_Soulbound_SafeTransferFromReverts() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        vm.prank(alice);
+        vm.expectRevert(MembershipNFT.MembershipNFT__Soulbound.selector);
+        nft.safeTransferFrom(alice, bob, 0);
+    }
+
+    // alice approves bob, bob calls transferFrom, still reverts
+    function test_Soulbound_ApprovalDoesNotEnableTransfer() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        // Alice approves bob as a spender. Approval itself is allowed (no override on approve()).
+        vm.prank(alice);
+        nft.approve(bob, 0);
+
+        // Bob attempts to use his approval to transfer alice's token to charlie.
+        // This must revert: approval doesn't bypass soulbound enforcement.
+        vm.prank(bob);
+        vm.expectRevert(MembershipNFT.MembershipNFT__Soulbound.selector);
+        nft.transferFrom(alice, charlie, 0); // Note: from=alice (owner), not from=bob
+    }
 
     // ==================================
     // ==== ERC721Votes Integration =====
