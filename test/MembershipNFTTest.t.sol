@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {MembershipNFT} from "../src/MembershipNFT.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 contract MembershipNFTTest is Test {
     // Setup
@@ -23,12 +25,6 @@ contract MembershipNFTTest is Test {
 
         vm.prank(deployer);
         nft.setGovernor(governor);
-    }
-
-    // === Helper Functions ===
-    function _deployFreshNft() internal returns (MembershipNFT) {
-        vm.prank(deployer);
-        return new MembershipNFT(minter, "Fresh", "FR");
     }
 
     // ==================================
@@ -345,20 +341,86 @@ contract MembershipNFTTest is Test {
     // ======== tokenURI Tests ==========
     // ==================================
 
-    /*
-    test_TokenURI_Tier0_ForNewcomer — votesCast == 0, decoded JSON contains "Newcomer" and the gray SVG color
-    test_TokenURI_Tier1_AfterFiveVotes — record 5 votes, decoded JSON contains "Active"
-    test_TokenURI_Tier2_AtBoundary20 — record 20 votes (boundary), decoded JSON contains "Engaged"
-    test_TokenURI_Tier3_AtTwentyOne — record 21 votes, decoded JSON contains "Veteran"
-    test_TokenURI_RevertsForNonexistentToken — query tokenId 999, should revert
+    // votesCast == 0, decoded JSON contains "Newcomer" and the gray SVG color
+    function test_TokenURI_Tier0_Newcomer() external {
+        // Setup: Mint Alice an NFT. 0 votes cast by default.
+        vm.prank(minter);
+        nft.mint(alice, 10);
 
-    For the tokenURI tests: you don't need to fully Base64-decode and parse JSON in Solidity. Two approaches:
+        // Generate the expected output using the shadow helper
+        string memory expected = _expectedTokenURI(0, "Newcomer", 0, "#888");
 
-    Use console.log to print the encoded result, decode externally, paste into a comment for documentation
-    Or just check that the result is non-empty and starts with the right prefix (data:application/json;base64,)
+        // Get the actual output from the contract
+        string memory actual = nft.tokenURI(0);
 
-    The richer test pattern: use Forge's vm cheatcodes to decode and assert specific substrings. But this is verbose. For a portfolio project, asserting prefix + nonempty is acceptable. Note in a comment that "full JSON parsing requires off-chain decoding."
-    */
+        assertEq(actual, expected, "Tier 0 tokenURI mismatch");
+    }
+
+    // record 5 votes, decoded JSON contains "Active"
+    function test_TokenURI_Tier1_AfterFiveVotes() external {
+        // Setup: Mint Alice an NFT. 0 votes cast by default.
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        vm.startPrank(governor);
+        for (uint256 i = 0; i < 5; i++) {
+            nft.recordVote(0);
+        }
+        vm.stopPrank();
+
+        // Generate the expected output using the shadow helper
+        string memory expected = _expectedTokenURI(0, "Active", 5, "#4a90e2");
+
+        // Get the actual output from the contract
+        string memory actual = nft.tokenURI(0);
+        assertEq(actual, expected, "Tier 1 tokenURI mismatch");
+    }
+
+    // record 20 votes (boundary), decoded JSON contains "Engaged"
+    function test_TokenURI_Tier2_AtBoundary20() external {
+        // Setup: Mint Alice an NFT. 0 votes cast by default.
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        vm.startPrank(governor);
+        for (uint256 i = 0; i < 20; i++) {
+            nft.recordVote(0);
+        }
+        vm.stopPrank();
+
+        // Generate the expected output using the shadow helper
+        string memory expected = _expectedTokenURI(0, "Engaged", 20, "#9b59b6");
+
+        // Get the actual output from the contract
+        string memory actual = nft.tokenURI(0);
+        assertEq(actual, expected, "Tier 2 tokenURI mismatch");
+    }
+
+    // record 21 votes, decoded JSON contains "Veteran"
+    function test_TokenURI_Tier3_AtTwentyOne() external {
+        // Setup: Mint Alice an NFT. 0 votes cast by default.
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        vm.startPrank(governor);
+        for (uint256 i = 0; i < 21; i++) {
+            nft.recordVote(0);
+        }
+        vm.stopPrank();
+
+        // Generate the expected output using the shadow helper
+        string memory expected = _expectedTokenURI(0, "Veteran", 21, "#f1c40f");
+
+        // Get the actual output from the contract
+        string memory actual = nft.tokenURI(0);
+        assertEq(actual, expected, "Tier 3 tokenURI mismatch");
+    }
+
+    // query tokenId 999, should revert
+    function test_TokenURI_RevertsForNonexistentToken() external {
+        vm.expectRevert();
+        nft.tokenURI(999);
+    }
 
     // ==================================
     // ========== View Tests ============
@@ -369,4 +431,49 @@ contract MembershipNFTTest is Test {
     test_GetVotesCastOf_ReturnsCorrectValue — straightforward
     test_GetTokenCounter_IncrementsAfterMint — mint, getTokenCounter increases
     */
+
+    // ==================================
+    // ======= Helper Functions =========
+    // ==================================
+
+    function _deployFreshNft() internal returns (MembershipNFT) {
+        vm.prank(deployer);
+        return new MembershipNFT(minter, "Fresh", "FR");
+    }
+
+    function _expectedTokenURI(uint256 tokenId, string memory tierName, uint256 votesCast, string memory svgFillColor)
+        internal
+        pure
+        returns (string memory)
+    {
+        string memory svg = string(
+            abi.encodePacked(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><circle cx="100" cy="100" r="80" fill="',
+                svgFillColor,
+                '"/></svg>'
+            )
+        );
+
+        string memory imageURI = string(abi.encodePacked("data:image/svg+xml;base64,", Base64.encode(bytes(svg))));
+
+        string memory description = string(
+            abi.encodePacked(
+                "Soulbound governance membership. Tier: ", tierName, ". Votes cast: ", Strings.toString(votesCast)
+            )
+        );
+
+        string memory json = string(
+            abi.encodePacked(
+                '{"name": "Membership #',
+                Strings.toString(tokenId),
+                '", "description": "',
+                description,
+                '", "image": "',
+                imageURI,
+                '"}'
+            )
+        );
+
+        return string(abi.encodePacked("data:application/json;base64,", Base64.encode(bytes(json))));
+    }
 }
