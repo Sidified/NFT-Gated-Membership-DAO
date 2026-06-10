@@ -426,11 +426,37 @@ contract MembershipNFTTest is Test {
     // ========== View Tests ============
     // ==================================
 
-    /*
-    test_GetVotingPowerOf_ReturnsCorrectValue — straightforward
-    test_GetVotesCastOf_ReturnsCorrectValue — straightforward
-    test_GetTokenCounter_IncrementsAfterMint — mint, getTokenCounter increases
-    */
+    function test_GetVotingPowerOf_ReturnsCorrectValue() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        assertEq(nft.getVotingPowerOf(0), 10, "Voting power is not correctly assigned");
+    }
+
+    function test_GetVotesCastOf_ReturnsCorrectValue() external {
+        vm.prank(minter);
+        nft.mint(alice, 10);
+
+        vm.startPrank(governor);
+        for (uint256 i = 0; i < 3; i++) {
+            nft.recordVote(0);
+        }
+        vm.stopPrank();
+
+        assertEq(nft.getVotesCastOf(0), 3, "Votes cast did not recorded properly");
+    }
+
+    function test_GetTokenCounter_IncrementsAfterMint() external {
+        assertEq(nft.getTokenCounter(), 0, "Initial token count should be 0");
+
+        vm.prank(minter);
+        nft.mint(alice, 10);
+        assertEq(nft.getTokenCounter(), 1, "Counter should be 1 after first mint");
+
+        vm.prank(minter);
+        nft.mint(bob, 20);
+        assertEq(nft.getTokenCounter(), 2, "Counter should be 2 after second mint");
+    }
 
     // ==================================
     // ======= Helper Functions =========
