@@ -250,4 +250,52 @@ contract MerkleClaimTest is Test {
         vm.prank(relayer);
         merkleClaim.claim(alice, votingPower, s_proofs[alice], v, r, s);
     }
+
+    // Reverts for malleable signatures
+    function test_Claim_Reverts_IfSignatureIsMalleable() external {
+        // The secp256k1 curve order constant needed to calculate the malleable signature
+        uint256 SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
+
+        // 1. Get Alice's legitimate signature using our helper
+        uint256 votingPower = s_votingPowers[alice];
+        (uint8 v, bytes32 r, bytes32 s) = _signClaim(alicePrivKey, alice, votingPower);
+
+        // 2. Compute the malleable equivalent (The "Shadow" Signature)
+        // We subtract the original 's' from the curve order (N) and flip the 'v' value.
+        bytes32 malleableS = bytes32(SECP256K1_N - uint256(s));
+        uint8 malleableV = v == 27 ? 28 : 27;
+
+        // 3. Setup the Revert Expectation
+        // Defense-in-depth note: Even if this bypassed OZ's ECDSA check,
+        // the transaction would still fail on a replay due to the `s_hasClaimed` mapping.
+        // However, we test this to ensure OpenZeppelin's protection is actively working.
+        vm.expectRevert(MerkleClaim.MerkleClaim__InvalidSignature.selector);
+
+        // 4. Submit the malleable signature as the relayer
+        vm.prank(relayer);
+        merkleClaim.claim(alice, votingPower, s_proofs[alice], malleableV, r, malleableS);
+    }
+
+    // Reverts if a signature generated for one contract is used on another
+    function test_Claim_Reverts_IfSignatureUsedOnDifferentContract() external {
+        uint256 votingPower = s_votingPowers[alice];
+
+        // 1. Generate Alice's signature for the ORIGINAL merkleClaim contract
+        (uint8 v, bytes32 r, bytes32 s) = _signClaim(alicePrivKey, alice, votingPower);
+
+        // 2. Deploy a SECOND MerkleClaim instance
+        // It has the exact same Merkle Root and NFT, but because the deployer's
+        // nonce has increased, it will be deployed to a totally different address.
+        vm.prank(deployer);
+        MerkleClaim merkleClaim2 = new MerkleClaim(merkleClaim.getMerkleRoot(), address(nft));
+
+        // 3. Setup the Revert Expectation
+        // We specifically want to ensure it fails because of the signature,
+        // not because the second contract isn't the minter for the NFT.
+        vm.expectRevert(MerkleClaim.MerkleClaim__InvalidSignature.selector);
+
+        // 4. Try to submit the original signature to the NEW contract
+        vm.prank(relayer);
+        merkleClaim2.claim(alice, votingPower, s_proofs[alice], v, r, s);
+    }
 }
