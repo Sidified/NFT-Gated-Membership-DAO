@@ -177,4 +177,39 @@ contract MerkleClaimTest is Test {
 
         assertFalse(merkleClaim.hasClaimed(david), "David should not be marked as claimed");
     }
+
+    // REPLAY PROTECTION TESTS
+
+    // Alice claims successfully. Then alice tries to claim again with the same signature and proof.
+    function test_Claim_RevertsOnReplay() external {
+        // First claim succeeds
+        _claimAs(alice);
+
+        // Attempt to replay — even with a freshly-generated signature, the hasClaimed
+        // mapping blocks the second attempt. This proves replay protection comes from
+        // the mapping, not from signature uniqueness.
+        uint256 votingPower = s_votingPowers[alice];
+        (uint8 v, bytes32 r, bytes32 sigS) = _signClaim(alicePrivKey, alice, votingPower);
+
+        vm.expectRevert(abi.encodeWithSelector(MerkleClaim.MerkleClaim__AlreadyClaimed.selector, alice));
+        vm.prank(relayer);
+        merkleClaim.claim(alice, votingPower, s_proofs[alice], v, r, sigS);
+    }
+
+    // After alice's claim is blocked from being replayed, bob can still claim.
+    function test_Claim_DifferentClaimantsAfterReplayBlocked() external {
+        _claimAs(alice); // claim 1
+
+        // Attempt to replay alice's claim — blocked
+        uint256 votingPower = s_votingPowers[alice];
+        (uint8 v, bytes32 r, bytes32 sigS) = _signClaim(alicePrivKey, alice, votingPower);
+        vm.expectRevert(abi.encodeWithSelector(MerkleClaim.MerkleClaim__AlreadyClaimed.selector, alice));
+        vm.prank(relayer);
+        merkleClaim.claim(alice, votingPower, s_proofs[alice], v, r, sigS);
+
+        // Bob can still claim — alice's block doesn't affect him
+        _claimAs(bob);
+        assertTrue(merkleClaim.hasClaimed(bob), "Bob should be able to claim");
+        assertEq(nft.ownerOf(1), bob, "Bob's NFT should be tokenId 1");
+    }
 }
