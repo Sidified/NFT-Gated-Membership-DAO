@@ -178,7 +178,7 @@ contract MerkleClaimTest is Test {
         assertFalse(merkleClaim.hasClaimed(david), "David should not be marked as claimed");
     }
 
-    // REPLAY PROTECTION TESTS
+    //// REPLAY PROTECTION TESTS ////
 
     // Alice claims successfully. Then alice tries to claim again with the same signature and proof.
     function test_Claim_RevertsOnReplay() external {
@@ -211,5 +211,47 @@ contract MerkleClaimTest is Test {
         _claimAs(bob);
         assertTrue(merkleClaim.hasClaimed(bob), "Bob should be able to claim");
         assertEq(nft.ownerOf(1), bob, "Bob's NFT should be tokenId 1");
+    }
+
+    /// SIGNATURE VALIDATION TESTS ////
+
+    // Wrong signer can't claim
+    function test_Claim_Reverts_IfSignerIsWrong() external {
+        uint256 votingPower = s_votingPowers[alice];
+        // bob signs a message for alice's claim
+        (uint8 v, bytes32 r, bytes32 sigS) = _signClaim(bobPrivKey, alice, votingPower);
+        vm.expectRevert(abi.encodeWithSelector(MerkleClaim.MerkleClaim__InvalidSignature.selector));
+        vm.prank(relayer);
+        merkleClaim.claim(alice, votingPower, s_proofs[alice], v, r, sigS);
+    }
+
+    // Wrong voting power in signature reverts
+    function test_Claim_Reverts_IfWrongVotingPowerInSignature() external {
+        uint256 votingPower = s_votingPowers[alice];
+        uint256 wrongVotingPower = 99;
+        // alice signs a message with a specific voting power
+        (uint8 v, bytes32 r, bytes32 sigS) = _signClaim(alicePrivKey, alice, votingPower);
+        vm.expectRevert(abi.encodeWithSelector(MerkleClaim.MerkleClaim__InvalidSignature.selector));
+        // the claim for alice is using a different voting power
+        vm.prank(relayer);
+        merkleClaim.claim(alice, wrongVotingPower, s_proofs[alice], v, r, sigS);
+    }
+
+    // Wrong account in signed message reverts
+    function test_Claim_Reverts_IfWrongAccountInSignMessage() external {
+        uint256 votingPower = s_votingPowers[bob];
+        // alice signs a message with bob's digest
+        bytes32 digestForBob = merkleClaim.getMessageHash(bob, votingPower);
+        uint8 v;
+        bytes32 r;
+        bytes32 s;
+        (v, r, s) = vm.sign(alicePrivKey, digestForBob);
+        vm.expectRevert(abi.encodeWithSelector(MerkleClaim.MerkleClaim__InvalidSignature.selector));
+        vm.prank(relayer);
+        merkleClaim.claim(alice, votingPower, s_proofs[alice], v, r, s);
+    }
+
+    // Signature from one contract doesn't work on another contract
+    function test_Claim_Reverts_IfContractIsDifferent() external {
     }
 }
