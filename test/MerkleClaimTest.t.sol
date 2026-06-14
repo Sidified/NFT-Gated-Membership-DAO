@@ -250,8 +250,4 @@ contract MerkleClaimTest is Test {
         vm.prank(relayer);
         merkleClaim.claim(alice, votingPower, s_proofs[alice], v, r, s);
     }
-
-    // Signature from one contract doesn't work on another contract
-    function test_Claim_Reverts_IfContractIsDifferent() external {
-    }
 }
