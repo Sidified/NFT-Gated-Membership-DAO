@@ -98,6 +98,17 @@ contract MerkleClaimTest is Test {
         (v, r, s) = vm.sign(privateKey, digest);
     }
 
+    function _claimAs(address claimant) internal {
+        uint256 votingPower = s_votingPowers[claimant];
+        uint256 privKey = s_privKeys[claimant];
+        bytes32[] memory proof = s_proofs[claimant];
+
+        (uint8 v, bytes32 r, bytes32 sigS) = _signClaim(privKey, claimant, votingPower);
+
+        vm.prank(relayer);
+        merkleClaim.claim(claimant, votingPower, proof, v, r, sigS);
+    }
+
     // Test for Checking the setUp logic works properly
     function test_Setup_WiringIsCorrect() external view {
         // MerkleClaim is the minter on the NFT
@@ -115,5 +126,55 @@ contract MerkleClaimTest is Test {
 
         // Proofs are non-empty for all claimants
         assertTrue(s_proofs[alice].length > 0, "Alice should have a proof");
+    }
+
+    //// HAPPY PATHS TESTS ////
+
+    // End-to-end successful claim by alice.
+    function test_Claim_AliceClaimsSuccessfully() external {
+        _claimAs(alice);
+
+        assertEq(nft.ownerOf(0), alice, "Alice should own token 0");
+        assertEq(nft.getVotingPowerOf(0), 10, "Token 0 should have voting power 10");
+        assertEq(nft.getVotes(alice), 10, "Alice should have 10 votes");
+        assertTrue(merkleClaim.hasClaimed(alice), "Alice should be marked as claimed");
+    }
+
+    // Verify the Claimed(account, votingPower, relayer) event is emitted with the correct values.
+    function test_Claim_EmitsClaimedEvent() external {
+        uint256 votingPower = s_votingPowers[alice];
+        (uint8 v, bytes32 r, bytes32 sigS) = _signClaim(alicePrivKey, alice, votingPower);
+
+        vm.expectEmit(true, true, false, true, address(merkleClaim));
+        emit MerkleClaim.Claimed(alice, votingPower, relayer);
+
+        vm.prank(relayer);
+        merkleClaim.claim(alice, votingPower, s_proofs[alice], v, r, sigS);
+    }
+
+    // Alice claims, then bob claims, then charlie claims. Verify each got their own NFT with the correct voting power.
+    function test_Claim_MultipleClaimantsIndependently() external {
+        _claimAs(alice);
+
+        assertEq(nft.ownerOf(0), alice, "Alice should own token 0");
+        assertEq(nft.getVotingPowerOf(0), 10, "Token 0 should have voting power 10");
+        assertEq(nft.getVotes(alice), 10, "Alice should have 10 votes");
+        assertTrue(merkleClaim.hasClaimed(alice), "Alice should be marked as claimed");
+
+        _claimAs(bob);
+
+        assertEq(nft.ownerOf(1), bob, "Bob should own token 1");
+        assertEq(nft.getVotingPowerOf(1), 20, "Token 1 should have voting power 20");
+        assertEq(nft.getVotes(bob), 20, "Bob should have 20 votes");
+        assertTrue(merkleClaim.hasClaimed(bob), "Bob should be marked as claimed");
+
+        _claimAs(charlie);
+
+        assertEq(nft.ownerOf(2), charlie, "Charlie should own token 2");
+        assertEq(nft.getVotingPowerOf(2), 30, "Token 2 should have voting power 30");
+        assertEq(nft.getVotes(charlie), 30, "Charlie should have 30 votes");
+        assertTrue(merkleClaim.hasClaimed(charlie), "Charlie should be marked as claimed");
+
+        assertFalse(merkleClaim.hasClaimed(david), "David should not be marked as claimed");
     }
 }
