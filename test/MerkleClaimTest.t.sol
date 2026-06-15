@@ -39,6 +39,8 @@ contract MerkleClaimTest is Test {
         (charlie, charliePrivKey) = makeAddrAndKey("charlie");
         (david, davidPrivKey) = makeAddrAndKey("david");
 
+        (nonClaimant, nonClaimantPrivKey) = makeAddrAndKey("nonClaimant");
+
         bytes32[] memory leaves = new bytes32[](4);
 
         leaves[0] = keccak256(bytes.concat(keccak256(abi.encode(alice, 10))));
@@ -213,7 +215,7 @@ contract MerkleClaimTest is Test {
         assertEq(nft.ownerOf(1), bob, "Bob's NFT should be tokenId 1");
     }
 
-    /// SIGNATURE VALIDATION TESTS ////
+    //// SIGNATURE VALIDATION TESTS ////
 
     // Wrong signer can't claim
     function test_Claim_Reverts_IfSignerIsWrong() external {
@@ -297,5 +299,60 @@ contract MerkleClaimTest is Test {
         // 4. Try to submit the original signature to the NEW contract
         vm.prank(relayer);
         merkleClaim2.claim(alice, votingPower, s_proofs[alice], v, r, s);
+    }
+
+    //// Merkle Verification Tests ////
+
+    // Alice has a valid signature for (alice, 10). The relayer submits the claim but with bob's proof instead of alice's proof
+    function test_Claim_Reverts_OnWrongProof() external {
+        uint256 votingPower = s_votingPowers[alice];
+        (uint8 v, bytes32 r, bytes32 sigS) = _signClaim(alicePrivKey, alice, votingPower);
+
+        vm.expectRevert(MerkleClaim.MerkleClaim__InvalidMerkleProof.selector);
+        vm.prank(relayer);
+        merkleClaim.claim(alice, votingPower, s_proofs[bob], v, r, sigS);
+    }
+
+    // Alice has a valid signature. The relayer submits with an empty bytes32[] array as the proof.
+    function test_Claim_Reverts_OnEmptyProof() external {
+        uint256 votingPower = s_votingPowers[alice];
+        (uint8 v, bytes32 r, bytes32 sigS) = _signClaim(alicePrivKey, alice, votingPower);
+
+        bytes32[] memory emptyProof = new bytes32[](0);
+        vm.expectRevert(MerkleClaim.MerkleClaim__InvalidMerkleProof.selector);
+        vm.prank(relayer);
+        merkleClaim.claim(alice, votingPower, emptyProof, v, r, sigS);
+    }
+
+    // nonClaimant signs a EIP-712 message and submits alice's proof
+    function test_Claim_Reverts_NonClaimantCannotClaim() external {
+        (uint8 v, bytes32 r, bytes32 sigS) = _signClaim(nonClaimantPrivKey, nonClaimant, 10);
+        vm.expectRevert(MerkleClaim.MerkleClaim__InvalidMerkleProof.selector);
+        vm.prank(relayer);
+        merkleClaim.claim(nonClaimant, 10, s_proofs[alice], v, r, sigS);
+    }
+
+    // Take alice's valid proof, modify one byte in one of the sibling hashes, submit
+    function test_Claim_Reverts_OnTamperedProof() external {
+        bytes32[] memory tamperedProof = s_proofs[alice];
+        tamperedProof[0] = bytes32(uint256(tamperedProof[0]) + 1); // flip a bit
+
+        uint256 votingPower = s_votingPowers[alice];
+        (uint8 v, bytes32 r, bytes32 sigS) = _signClaim(alicePrivKey, alice, votingPower);
+
+        vm.expectRevert(MerkleClaim.MerkleClaim__InvalidMerkleProof.selector);
+        vm.prank(relayer);
+        merkleClaim.claim(alice, votingPower, tamperedProof, v, r, sigS);
+    }
+
+    //// Input Validation Tests ////
+
+    // Submit a claim with votingPower=0
+    function test_Claim_Reverts_OnZeroVotingPower() external {
+        (uint8 v, bytes32 r, bytes32 sigS) = _signClaim(alicePrivKey, alice, 0);
+
+        vm.expectRevert(MerkleClaim.MerkleClaim__InvalidVotingPower.selector);
+        vm.prank(relayer);
+        merkleClaim.claim(alice, 0, s_proofs[alice], v, r, sigS);
     }
 }
