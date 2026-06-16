@@ -256,4 +256,68 @@ contract MembershipGovernorTest is Test {
         // Now Active and ready for votes
         assertEq(uint256(governor.state(proposalId)), uint256(IGovernor.ProposalState.Active));
     }
+
+    //// VOTING MECHANICS TESTS ////
+
+    function test_Vote_VotingPowerReflectsHistoricalCheckpoint() external {
+        uint256 proposalId = _propose(42, alice);
+
+        // Advance past voting delay
+        vm.roll(block.number + VOTING_DELAY + 1);
+
+        _voteFor(proposalId, alice);
+
+        (uint256 againstVotes, uint256 forVotes, uint256 abstainVotes) = governor.proposalVotes(proposalId);
+
+        // Alice has 10 voting power checkpointed at the snapshot block
+        assertEq(forVotes, 10, "For votes should match Alice's voting power");
+        assertEq(againstVotes, 0, "Against votes should be 0");
+        assertEq(abstainVotes, 0, "Abstain votes should be 0");
+    }
+
+    function test_Vote_CannotVoteTwice() external {
+        uint256 proposalId = _propose(42, alice);
+
+        vm.roll(block.number + VOTING_DELAY + 1);
+
+        // First vote succeeds
+        _voteFor(proposalId, alice);
+
+        // Second vote must strictly revert with the exact OZ selector
+        vm.expectRevert(abi.encodeWithSelector(IGovernor.GovernorAlreadyCastVote.selector, alice));
+        _voteFor(proposalId, alice);
+    }
+
+    function test_Vote_RecordVoteHookFires() external {
+        uint256 proposalId = _propose(42, alice);
+
+        vm.roll(block.number + VOTING_DELAY + 1);
+
+        uint256 aliceTokenId = nft.tokenIdOf(alice);
+
+        // Pre-condition: NFT votes cast should be 0
+        assertEq(nft.getVotesCastOf(aliceTokenId), 0, "Initial votesCast should be 0");
+
+        // Act: Alice votes
+        _voteFor(proposalId, alice);
+
+        // Post-condition: The custom hook in MembershipGovernor fired and updated the NFT
+        assertEq(nft.getVotesCastOf(aliceTokenId), 1, "recordVote hook failed to increment votesCast");
+    }
+
+    function test_Vote_CannotVoteOutsideActiveWindow() external {
+        uint256 proposalId = _propose(42, alice);
+
+        // Voting BEFORE active (still in voting delay window -> State is Pending)
+        // We use bare expectRevert here as matching complex OZ state bitmaps is pragmatic overkill for this bound
+        vm.expectRevert();
+        _voteFor(proposalId, alice);
+
+        // Advance past voting period entirely -> State becomes Defeated or Succeeded
+        vm.roll(block.number + VOTING_DELAY + VOTING_PERIOD + 2);
+
+        // Voting AFTER period ends
+        vm.expectRevert();
+        _voteFor(proposalId, alice);
+    }
 }
