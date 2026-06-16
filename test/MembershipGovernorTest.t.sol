@@ -193,6 +193,31 @@ contract MembershipGovernorTest is Test {
         _voteForOrAgainst(proposalId, voter, 2);
     }
 
+    // Quick lifecycle helpers
+    function _advanceToActive() internal {
+        vm.roll(block.number + VOTING_DELAY + 1);
+    }
+
+    function _advancePastVoting() internal {
+        vm.roll(block.number + VOTING_PERIOD + 1);
+    }
+
+    function _queueProposal(uint256 valueToStore) internal {
+        (address[] memory targets, uint256[] memory values, bytes[] memory calldatas, string memory description) =
+            _buildBoxProposal(valueToStore);
+        governor.queue(targets, values, calldatas, keccak256(bytes(description)));
+    }
+
+    function _executeProposal(uint256 valueToStore) internal {
+        (address[] memory targets, uint256[] memory values, bytes[] memory calldatas, string memory description) =
+            _buildBoxProposal(valueToStore);
+        governor.execute(targets, values, calldatas, keccak256(bytes(description)));
+    }
+
+    function _advancePastTimelockDelay() internal {
+        vm.warp(block.timestamp + MIN_TIMELOCK_DELAY + 1);
+    }
+
     //// TESTS ////
 
     function test_Setup_AllContractsWiredCorrectly() external view {
@@ -319,5 +344,72 @@ contract MembershipGovernorTest is Test {
         // Voting AFTER period ends
         vm.expectRevert();
         _voteFor(proposalId, alice);
+    }
+
+    //// PROPOSAL LIFECYCLE TESTS ////
+
+    function test_Lifecycle_SuccessfulProposalReachesSucceeded() external {
+        uint256 proposalId = _propose(42, alice);
+
+        _advanceToActive();
+        _voteFor(proposalId, alice); // Alice has 10 votes, meets quorum
+
+        _advancePastVoting();
+
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Succeeded),
+            "Proposal should be Succeeded"
+        );
+    }
+
+    function test_Lifecycle_DefeatedProposalShowsDefeated() external {
+        uint256 proposalId = _propose(42, alice);
+
+        _advanceToActive();
+        _voteFor(proposalId, alice); // 10 For
+        _voteAgainst(proposalId, bob); // 20 Against
+        _voteAgainst(proposalId, david); // 40 Against
+
+        _advancePastVoting();
+
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Defeated),
+            "Proposal should be Defeated"
+        );
+    }
+
+    function test_Lifecycle_FullProposalCanExecuteAndModifiesBox() external {
+        uint256 valueToStore = 42;
+        uint256 proposalId = _propose(valueToStore, alice);
+
+        _advanceToActive();
+        _voteFor(proposalId, alice);
+        _voteFor(proposalId, bob); // Total 30 votes For
+
+        _advancePastVoting();
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Succeeded),
+            "Proposal should be Succeeded"
+        );
+
+        _queueProposal(valueToStore);
+        assertEq(
+            uint256(governor.state(proposalId)), uint256(IGovernor.ProposalState.Queued), "Proposal should be Queued"
+        );
+
+        _advancePastTimelockDelay();
+
+        _executeProposal(valueToStore);
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Executed),
+            "Proposal should be Executed"
+        );
+
+        // The ultimate assertion: the DAO has successfully acted upon an external contract!
+        assertEq(box.getValue(), valueToStore, "Box value should have been updated by governance");
     }
 }
