@@ -14,6 +14,7 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
  * @dev Inherits OpenZeppelin's ERC721Votes. Implements custom voting power per token,
  * an internal _update hook to enforce soulbound (non-transferable) mechanics, and an
  * entirely on-chain dynamic SVG metadata engine based on governance participation.
+ * Enforces a strict 1-NFT-per-address rule to represent unique DAO identities.
  */
 contract MembershipNFT is ERC721Votes {
     //// ERRORS ////
@@ -24,11 +25,15 @@ contract MembershipNFT is ERC721Votes {
     error MembershipNFT__GovernorAlreadySet();
     error MembershipNFT__ZeroAddress();
     error MembershipNFT__ZeroVotingPower();
+    error MembershipNFT__AlreadyHasMembership();
 
     //// STATE VARIABLES ////
     mapping(uint256 tokenId => uint256) private s_votingPower;
     mapping(uint256 tokenId => uint256) private s_votesCast;
-    mapping(address account => uint256) private s_userVotingPower;
+
+    // O(1) lookup to find a user's specific token. 0 means they don't own one.
+    mapping(address account => uint256) private s_tokenIdOf;
+
     uint256 private s_tokenCounter;
     address private immutable i_minter;
     address private s_governor;
@@ -82,15 +87,16 @@ contract MembershipNFT is ERC721Votes {
     constructor(address minter, string memory name, string memory symbol) ERC721(name, symbol) EIP712(name, "1") {
         i_minter = minter;
         i_deployer = msg.sender;
+
+        // We start at 1 so that `s_tokenIdOf` returning 0 unambiguously means "No NFT"
+        s_tokenCounter = 1;
     }
 
     //// EXTERNAL FUNCTIONS ////
 
     /**
      * @notice Mints a new soulbound membership NFT to a verified contributor.
-     * @dev Automatically delegates voting power on the first mint to activate governance checkpoints.
-     * For subsequent mints, it bypasses standard OpenZeppelin logic and manually injects the new
-     * voting power into the existing checkpoint ledger to prevent double-counting.
+     * @dev Enforces 1 NFT per address. Automatically delegates voting power to the recipient.
      * @param to The address of the verified contributor.
      * @param votingPower The amount of voting power the contributor earned.
      */
@@ -98,20 +104,17 @@ contract MembershipNFT is ERC721Votes {
         if (to == address(0)) revert MembershipNFT__ZeroAddress();
         if (votingPower == 0) revert MembershipNFT__ZeroVotingPower();
 
+        // Check if they already own an NFT
+        if (balanceOf(to) > 0) revert MembershipNFT__AlreadyHasMembership();
+
         uint256 tokenId = s_tokenCounter;
         s_tokenCounter++;
+
         s_votingPower[tokenId] = votingPower;
-        s_userVotingPower[to] += votingPower;
+        s_tokenIdOf[to] = tokenId; // Map the user to their new token ID
 
-        // Auto-delegate to self on first mint; subsequent mints inherit the delegation.
-        if (delegates(to) == address(0)) {
-            _delegate(to, to);
-        } else {
-            // Already delegated; manually move voting units to update the checkpoint
-            // since we've bypassed OZ's automatic _transferVotingUnits in _update and _increaseBalance.
-            _transferVotingUnits(address(0), to, votingPower);
-        }
-
+        // Because it's guaranteed to be their first mint, we can simplify delegation
+        _delegate(to, to);
         _safeMint(to, tokenId);
 
         emit Minted(to, tokenId, votingPower);
@@ -229,6 +232,14 @@ contract MembershipNFT is ERC721Votes {
         return s_tokenCounter;
     }
 
+    /**
+     * @notice Returns the specific Token ID owned by an address.
+     * @return The token ID (returns 0 if the user does not own an NFT).
+     */
+    function tokenIdOf(address account) public view returns (uint256) {
+        return s_tokenIdOf[account];
+    }
+
     //// INTERNAL OVERRIDES FUNCTIONS ////
 
     /**
@@ -244,16 +255,18 @@ contract MembershipNFT is ERC721Votes {
 
         // Call ERC721._update directly, bypassing ERC721Votes._update which would
         // add +1 to voting checkpoints via _transferVotingUnits. Voting power is
-        // managed exclusively by our custom s_userVotingPower mapping via _delegate.
+        // managed exclusively by our custom lookup mapping.
         return ERC721._update(to, tokenId, auth);
     }
 
     /**
-     * @notice Overrides standard NFT counting to use custom voting power mapping.
+     * @notice NEW: Routes OpenZeppelin's voting checkpoint system to our custom lookup mapping.
      * @dev Required by OpenZeppelin's Votes contract to determine an account's true weight.
      */
     function _getVotingUnits(address account) internal view override returns (uint256) {
-        return s_userVotingPower[account];
+        uint256 tokenId = s_tokenIdOf[account];
+        if (tokenId == 0) return 0; // User has no NFT
+        return s_votingPower[tokenId];
     }
 
     /**

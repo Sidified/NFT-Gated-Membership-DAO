@@ -36,9 +36,9 @@ contract MembershipNFTTest is Test {
         assertEq(nft.getMinter(), minter, "Address of minter not set properly");
     }
 
-    // verify getTokenCounter() returns 0
-    function test_Constructor_TokenCounterStartsAtZero() external view {
-        assertEq(nft.getTokenCounter(), 0, "Token count is not starting with zero");
+    // verify getTokenCounter() returns 1 (NEW BEHAVIOR)
+    function test_Constructor_TokenCounterStartsAtOne() external view {
+        assertEq(nft.getTokenCounter(), 1, "Token count must start at 1");
     }
 
     //  deploy fresh NFT, verify getGovernor() == address(0)
@@ -107,7 +107,7 @@ contract MembershipNFTTest is Test {
         nft.mint(bob, 10);
     }
 
-    // mint three NFTs, verify IDs are 0, 1, 2
+    // mint three NFTs, verify IDs are 1, 2, 3 (UPDATED BEHAVIOR)
     function test_Mint_MintsSequentialTokenIds() external {
         vm.startPrank(minter);
         nft.mint(alice, 5);
@@ -115,9 +115,9 @@ contract MembershipNFTTest is Test {
         nft.mint(charlie, 15);
         vm.stopPrank();
 
-        assertEq(nft.ownerOf(0), alice, "Token 0 should be minted to Alice");
-        assertEq(nft.ownerOf(1), bob, "Token 1 should be minted to Bob");
-        assertEq(nft.ownerOf(2), charlie, "Token 2 should be minted to Charlie");
+        assertEq(nft.ownerOf(1), alice, "Token 1 should be minted to Alice");
+        assertEq(nft.ownerOf(2), bob, "Token 2 should be minted to Bob");
+        assertEq(nft.ownerOf(3), charlie, "Token 3 should be minted to Charlie");
     }
 
     // getVotingPowerOf returns correct value
@@ -125,7 +125,7 @@ contract MembershipNFTTest is Test {
         vm.prank(minter);
         nft.mint(bob, 10);
 
-        assertEq(nft.getVotingPowerOf(0), 10, "Static voting power should be recorded in NFT");
+        assertEq(nft.getVotingPowerOf(1), 10, "Static voting power should be recorded in NFT");
     }
 
     // getVotes returns correct value
@@ -136,17 +136,14 @@ contract MembershipNFTTest is Test {
         assertEq(nft.getVotes(alice), 10, "getVotes should reflect custom voting power, not NFT count");
     }
 
-    // voting power accumulates
-    function test_Mint_UpdatesUserVotingPower_MultipleMintsToSameUser() external {
+    // NEW BEHAVIOR: Prevents multiple mints to the same address
+    function test_Mint_RevertsOnDoubleMint() external {
         vm.prank(minter);
         nft.mint(alice, 10);
 
+        vm.expectRevert(MembershipNFT.MembershipNFT__AlreadyHasMembership.selector);
         vm.prank(minter);
         nft.mint(alice, 20);
-
-        assertEq(nft.getVotingPowerOf(0), 10, "First token should hold 10 power");
-        assertEq(nft.getVotingPowerOf(1), 20, "Second token should hold 20 power");
-        assertEq(nft.getVotes(alice), 30, "Total voting power should accumulate to 30");
     }
 
     // explicitly prove the delegate target is set to the user
@@ -170,10 +167,10 @@ contract MembershipNFTTest is Test {
         assertEq(nft.getVotes(bob), 25, "Bob's votes should not include Alice's");
     }
 
-    // verify event with correct params
+    // verify event with correct params (UPDATED to Token 1)
     function test_Mint_EmitsMintedEvent() external {
         vm.expectEmit(true, true, false, true, address(nft));
-        emit MembershipNFT.Minted(alice, 0, 10);
+        emit MembershipNFT.Minted(alice, 1, 10);
         vm.prank(minter);
         nft.mint(alice, 10);
     }
@@ -201,7 +198,7 @@ contract MembershipNFTTest is Test {
 
         vm.expectRevert(MembershipNFT.MembershipNFT__OnlyGovernor.selector);
         vm.prank(alice); // even alice (the token owner) can't call this
-        nft.recordVote(0);
+        nft.recordVote(1);
     }
 
     // single call: votesCast goes from 0 to 1
@@ -210,23 +207,23 @@ contract MembershipNFTTest is Test {
         nft.mint(alice, 10);
 
         vm.prank(governor);
-        nft.recordVote(0);
+        nft.recordVote(1);
 
-        assertEq(nft.getVotesCastOf(0), 1, "votesCast should be 1 after single recordVote");
+        assertEq(nft.getVotesCastOf(1), 1, "votesCast should be 1 after single recordVote");
     }
 
-    // single call: votesCast goes from 0 to 1
+    // accumulate votes
     function test_RecordVote_AccumulatesAcrossMultipleCalls() external {
         vm.prank(minter);
         nft.mint(alice, 10);
 
         vm.startPrank(governor);
         for (uint256 i = 0; i < 5; i++) {
-            nft.recordVote(0);
+            nft.recordVote(1);
         }
         vm.stopPrank();
 
-        assertEq(nft.getVotesCastOf(0), 5, "votesCast should accumulate to 5");
+        assertEq(nft.getVotesCastOf(1), 5, "votesCast should accumulate to 5");
     }
 
     // verify event
@@ -235,10 +232,10 @@ contract MembershipNFTTest is Test {
         nft.mint(alice, 10);
 
         vm.expectEmit(true, false, false, true, address(nft));
-        emit MembershipNFT.VoteRecorded(0, 1); // tokenId 0, newVotesCast 1
+        emit MembershipNFT.VoteRecorded(1, 1); // tokenId 1, newVotesCast 1
 
         vm.prank(governor);
-        nft.recordVote(0);
+        nft.recordVote(1);
     }
 
     // try to record vote for tokenId 999, should revert via _requireOwned
@@ -259,7 +256,7 @@ contract MembershipNFTTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(MembershipNFT.MembershipNFT__Soulbound.selector);
-        nft.transferFrom(alice, bob, 0);
+        nft.transferFrom(alice, bob, 1);
     }
 
     // same but via safeTransferFrom
@@ -269,7 +266,7 @@ contract MembershipNFTTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(MembershipNFT.MembershipNFT__Soulbound.selector);
-        nft.safeTransferFrom(alice, bob, 0);
+        nft.safeTransferFrom(alice, bob, 1);
     }
 
     // alice approves bob, bob calls transferFrom, still reverts
@@ -277,50 +274,53 @@ contract MembershipNFTTest is Test {
         vm.prank(minter);
         nft.mint(alice, 10);
 
-        // Alice approves bob as a spender. Approval itself is allowed (no override on approve()).
+        // Alice approves bob as a spender. Approval itself is allowed.
         vm.prank(alice);
-        nft.approve(bob, 0);
+        nft.approve(bob, 1);
 
         // Bob attempts to use his approval to transfer alice's token to charlie.
-        // This must revert: approval doesn't bypass soulbound enforcement.
         vm.prank(bob);
         vm.expectRevert(MembershipNFT.MembershipNFT__Soulbound.selector);
-        nft.transferFrom(alice, charlie, 0); // Note: from=alice (owner), not from=bob
+        nft.transferFrom(alice, charlie, 1);
     }
 
     // ==================================
     // ==== ERC721Votes Integration =====
     // ==================================
 
-    // mint, advance block, mint again, getPastVotes at earlier block returns earlier voting power
+    // REWRITTEN: Tests delegation to accumulate voting power at checkpoints
     function test_Votes_GetPastVotesAtHistoricalBlock() external {
+        // Block 1: Alice gets 10 power
         vm.prank(minter);
         nft.mint(alice, 10);
         uint256 mintBlock1 = block.number;
 
+        // Block 10: Bob gets 20 power, then delegates his 20 to Alice
         vm.roll(10);
         vm.prank(minter);
-        nft.mint(alice, 20);
+        nft.mint(bob, 20);
+        vm.prank(bob);
+        nft.delegate(alice);
         uint256 mintBlock2 = block.number;
 
+        // Block 20: Charlie gets 30 power, then delegates his 30 to Alice
         vm.roll(20);
         vm.prank(minter);
-        nft.mint(alice, 30);
+        nft.mint(charlie, 30);
+        vm.prank(charlie);
+        nft.delegate(alice);
         uint256 mintBlock3 = block.number;
 
-        // Advance the block so mintBlock3 is now officially in the past
+        // Advance block so we can look into the past
         vm.roll(mintBlock3 + 1);
 
-        assertEq(nft.getPastVotes(alice, mintBlock1), 10, "votes at first mint block should be 10");
-        assertEq(nft.getPastVotes(alice, mintBlock2), 30, "votes at second mint block should be 30");
-        assertEq(nft.getPastVotes(alice, mintBlock3), 60, "votes at third mint block should be 60");
-
-        // At block 5 (between mint 1 and mint 2), the most recent checkpoint is mint 1.
-        // OZ returns the most recent value at-or-before the queried block.
-        assertEq(nft.getPastVotes(alice, 5), 10, "votes between mints should reflect prior checkpoint");
+        // Alice: 10. Bob: 20 -> Alice. Charlie: 30 -> Alice. Total = 60.
+        assertEq(nft.getPastVotes(alice, mintBlock1), 10, "votes at first block should be 10");
+        assertEq(nft.getPastVotes(alice, mintBlock2), 30, "votes at second block should be 30 (Alice + Bob)");
+        assertEq(nft.getPastVotes(alice, mintBlock3), 60, "votes at third block should be 60 (Alice + Bob + Charlie)");
     }
 
-    // mint power=100 NFT, verify balanceOf returns 1 (not 100). This catches the bug where someone thinks ERC721Votes uses balanceOf.
+    // verify balanceOf returns 1, but getVotes returns 100
     function test_Votes_VotingPowerIndependentOfBalanceOf() external {
         vm.prank(minter);
         nft.mint(alice, 100);
@@ -333,7 +333,7 @@ contract MembershipNFTTest is Test {
         vm.prank(minter);
         nft.mint(alice, 10);
 
-        vm.expectRevert(); // OZ's ERC5805FutureLookup; using bare expectRevert for simplicity
+        vm.expectRevert(); // OZ's ERC5805FutureLookup
         nft.getPastVotes(alice, block.number);
     }
 
@@ -343,76 +343,60 @@ contract MembershipNFTTest is Test {
 
     // votesCast == 0, decoded JSON contains "Newcomer" and the gray SVG color
     function test_TokenURI_Tier0_Newcomer() external {
-        // Setup: Mint Alice an NFT. 0 votes cast by default.
         vm.prank(minter);
         nft.mint(alice, 10);
 
-        // Generate the expected output using the shadow helper
-        string memory expected = _expectedTokenURI(0, "Newcomer", 0, "#888");
-
-        // Get the actual output from the contract
-        string memory actual = nft.tokenURI(0);
+        string memory expected = _expectedTokenURI(1, "Newcomer", 0, "#888");
+        string memory actual = nft.tokenURI(1);
 
         assertEq(actual, expected, "Tier 0 tokenURI mismatch");
     }
 
     // record 5 votes, decoded JSON contains "Active"
     function test_TokenURI_Tier1_AfterFiveVotes() external {
-        // Setup: Mint Alice an NFT. 0 votes cast by default.
         vm.prank(minter);
         nft.mint(alice, 10);
 
         vm.startPrank(governor);
         for (uint256 i = 0; i < 5; i++) {
-            nft.recordVote(0);
+            nft.recordVote(1);
         }
         vm.stopPrank();
 
-        // Generate the expected output using the shadow helper
-        string memory expected = _expectedTokenURI(0, "Active", 5, "#4a90e2");
-
-        // Get the actual output from the contract
-        string memory actual = nft.tokenURI(0);
+        string memory expected = _expectedTokenURI(1, "Active", 5, "#4a90e2");
+        string memory actual = nft.tokenURI(1);
         assertEq(actual, expected, "Tier 1 tokenURI mismatch");
     }
 
     // record 20 votes (boundary), decoded JSON contains "Engaged"
     function test_TokenURI_Tier2_AtBoundary20() external {
-        // Setup: Mint Alice an NFT. 0 votes cast by default.
         vm.prank(minter);
         nft.mint(alice, 10);
 
         vm.startPrank(governor);
         for (uint256 i = 0; i < 20; i++) {
-            nft.recordVote(0);
+            nft.recordVote(1);
         }
         vm.stopPrank();
 
-        // Generate the expected output using the shadow helper
-        string memory expected = _expectedTokenURI(0, "Engaged", 20, "#9b59b6");
-
-        // Get the actual output from the contract
-        string memory actual = nft.tokenURI(0);
+        string memory expected = _expectedTokenURI(1, "Engaged", 20, "#9b59b6");
+        string memory actual = nft.tokenURI(1);
         assertEq(actual, expected, "Tier 2 tokenURI mismatch");
     }
 
     // record 21 votes, decoded JSON contains "Veteran"
     function test_TokenURI_Tier3_AtTwentyOne() external {
-        // Setup: Mint Alice an NFT. 0 votes cast by default.
         vm.prank(minter);
         nft.mint(alice, 10);
 
         vm.startPrank(governor);
         for (uint256 i = 0; i < 21; i++) {
-            nft.recordVote(0);
+            nft.recordVote(1);
         }
         vm.stopPrank();
 
-        // Generate the expected output using the shadow helper
-        string memory expected = _expectedTokenURI(0, "Veteran", 21, "#f1c40f");
-
-        // Get the actual output from the contract
-        string memory actual = nft.tokenURI(0);
+        string memory expected = _expectedTokenURI(1, "Veteran", 21, "#f1c40f");
+        string memory actual = nft.tokenURI(1);
         assertEq(actual, expected, "Tier 3 tokenURI mismatch");
     }
 
@@ -430,7 +414,7 @@ contract MembershipNFTTest is Test {
         vm.prank(minter);
         nft.mint(alice, 10);
 
-        assertEq(nft.getVotingPowerOf(0), 10, "Voting power is not correctly assigned");
+        assertEq(nft.getVotingPowerOf(1), 10, "Voting power is not correctly assigned");
     }
 
     function test_GetVotesCastOf_ReturnsCorrectValue() external {
@@ -439,23 +423,23 @@ contract MembershipNFTTest is Test {
 
         vm.startPrank(governor);
         for (uint256 i = 0; i < 3; i++) {
-            nft.recordVote(0);
+            nft.recordVote(1);
         }
         vm.stopPrank();
 
-        assertEq(nft.getVotesCastOf(0), 3, "Votes cast did not recorded properly");
+        assertEq(nft.getVotesCastOf(1), 3, "Votes cast did not recorded properly");
     }
 
     function test_GetTokenCounter_IncrementsAfterMint() external {
-        assertEq(nft.getTokenCounter(), 0, "Initial token count should be 0");
+        assertEq(nft.getTokenCounter(), 1, "Initial token count should be 1");
 
         vm.prank(minter);
         nft.mint(alice, 10);
-        assertEq(nft.getTokenCounter(), 1, "Counter should be 1 after first mint");
+        assertEq(nft.getTokenCounter(), 2, "Counter should be 2 after first mint");
 
         vm.prank(minter);
         nft.mint(bob, 20);
-        assertEq(nft.getTokenCounter(), 2, "Counter should be 2 after second mint");
+        assertEq(nft.getTokenCounter(), 3, "Counter should be 3 after second mint");
     }
 
     // ==================================

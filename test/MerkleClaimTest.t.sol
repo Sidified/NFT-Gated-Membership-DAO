@@ -136,8 +136,9 @@ contract MerkleClaimTest is Test {
     function test_Claim_AliceClaimsSuccessfully() external {
         _claimAs(alice);
 
-        assertEq(nft.ownerOf(0), alice, "Alice should own token 0");
-        assertEq(nft.getVotingPowerOf(0), 10, "Token 0 should have voting power 10");
+        // UPDATED: Token ID is 1
+        assertEq(nft.ownerOf(1), alice, "Alice should own token 1");
+        assertEq(nft.getVotingPowerOf(1), 10, "Token 1 should have voting power 10");
         assertEq(nft.getVotes(alice), 10, "Alice should have 10 votes");
         assertTrue(merkleClaim.hasClaimed(alice), "Alice should be marked as claimed");
     }
@@ -158,22 +159,22 @@ contract MerkleClaimTest is Test {
     function test_Claim_MultipleClaimantsIndependently() external {
         _claimAs(alice);
 
-        assertEq(nft.ownerOf(0), alice, "Alice should own token 0");
-        assertEq(nft.getVotingPowerOf(0), 10, "Token 0 should have voting power 10");
+        assertEq(nft.ownerOf(1), alice, "Alice should own token 1");
+        assertEq(nft.getVotingPowerOf(1), 10, "Token 1 should have voting power 10");
         assertEq(nft.getVotes(alice), 10, "Alice should have 10 votes");
         assertTrue(merkleClaim.hasClaimed(alice), "Alice should be marked as claimed");
 
         _claimAs(bob);
 
-        assertEq(nft.ownerOf(1), bob, "Bob should own token 1");
-        assertEq(nft.getVotingPowerOf(1), 20, "Token 1 should have voting power 20");
+        assertEq(nft.ownerOf(2), bob, "Bob should own token 2");
+        assertEq(nft.getVotingPowerOf(2), 20, "Token 2 should have voting power 20");
         assertEq(nft.getVotes(bob), 20, "Bob should have 20 votes");
         assertTrue(merkleClaim.hasClaimed(bob), "Bob should be marked as claimed");
 
         _claimAs(charlie);
 
-        assertEq(nft.ownerOf(2), charlie, "Charlie should own token 2");
-        assertEq(nft.getVotingPowerOf(2), 30, "Token 2 should have voting power 30");
+        assertEq(nft.ownerOf(3), charlie, "Charlie should own token 3");
+        assertEq(nft.getVotingPowerOf(3), 30, "Token 3 should have voting power 30");
         assertEq(nft.getVotes(charlie), 30, "Charlie should have 30 votes");
         assertTrue(merkleClaim.hasClaimed(charlie), "Charlie should be marked as claimed");
 
@@ -212,7 +213,8 @@ contract MerkleClaimTest is Test {
         // Bob can still claim — alice's block doesn't affect him
         _claimAs(bob);
         assertTrue(merkleClaim.hasClaimed(bob), "Bob should be able to claim");
-        assertEq(nft.ownerOf(1), bob, "Bob's NFT should be tokenId 1");
+        // UPDATED: Bob's token is now 2, because Alice took 1.
+        assertEq(nft.ownerOf(2), bob, "Bob's NFT should be tokenId 2");
     }
 
     //// SIGNATURE VALIDATION TESTS ////
