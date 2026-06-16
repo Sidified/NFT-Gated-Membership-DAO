@@ -35,7 +35,10 @@ contract MembershipGovernorTest is Test {
     uint256 constant MIN_TIMELOCK_DELAY = 1 hours;
     uint48 constant VOTING_DELAY = 1; // 1 block delay before voting starts
     uint32 constant VOTING_PERIOD = 50; // ~10 minutes
-    uint256 constant PROPOSAL_THRESHOLD = 0; // any member can propose
+
+    // UPDATED: Threshold is 1 to strictly enforce "Members Only" proposing
+    uint256 constant PROPOSAL_THRESHOLD = 1;
+
     uint256 constant QUORUM_PERCENTAGE = 4; // 4% of total voting power
 
     //// STATE CACHE ////
@@ -146,7 +149,6 @@ contract MembershipGovernorTest is Test {
         merkleClaim.claim(claimant, votingPower, proof, v, r, sigS);
     }
 
-    // Returns the components needed to submit a proposal to the Governor
     function _buildBoxProposal(uint256 valueToStore)
         internal
         view
@@ -161,11 +163,9 @@ contract MembershipGovernorTest is Test {
         calldatas = new bytes[](1);
         calldatas[0] = abi.encodeWithSelector(Box.store.selector, valueToStore);
 
-        // We use vm.toString to make the description unique for the given value
         description = string(abi.encodePacked("Set box value to ", vm.toString(valueToStore)));
     }
 
-    // Submits the proposal as a specified user and returns the Proposal ID
     function _propose(uint256 valueToStore, address proposer) internal returns (uint256 proposalId) {
         (address[] memory targets, uint256[] memory values, bytes[] memory calldatas, string memory description) =
             _buildBoxProposal(valueToStore);
@@ -174,10 +174,23 @@ contract MembershipGovernorTest is Test {
         proposalId = governor.propose(targets, values, calldatas, description);
     }
 
-    // Helper to cast a vote. Support values: 0=Against, 1=For, 2=Abstain
+    // Generic Vote Helper
     function _voteForOrAgainst(uint256 proposalId, address voter, uint8 support) internal {
         vm.prank(voter);
         governor.castVote(proposalId, support);
+    }
+
+    // Semantic Vote Helpers (Eliminates magic numbers)
+    function _voteAgainst(uint256 proposalId, address voter) internal {
+        _voteForOrAgainst(proposalId, voter, 0);
+    }
+
+    function _voteFor(uint256 proposalId, address voter) internal {
+        _voteForOrAgainst(proposalId, voter, 1);
+    }
+
+    function _voteAbstain(uint256 proposalId, address voter) internal {
+        _voteForOrAgainst(proposalId, voter, 2);
     }
 
     //// TESTS ////
@@ -208,17 +221,39 @@ contract MembershipGovernorTest is Test {
     //// PROPOSAL CREATION TESTS ////
 
     function test_Propose_MemberCanCreateProposal() external {
-        // 1. Alice proposes setting the box value to 42
         uint256 proposalId = _propose(42, alice);
 
-        // 2. Verify the Proposal is in the 'Pending' state right after creation
         assertEq(
             uint256(governor.state(proposalId)),
             uint256(IGovernor.ProposalState.Pending),
             "Proposal state should be Pending"
         );
 
-        // 3. Verify the proposer identity is correctly recorded as Alice
         assertEq(governor.proposalProposer(proposalId), alice, "Proposal proposer should be Alice");
+    }
+
+    function test_Propose_NonMemberCannotCreateProposal() external {
+        address nonMember = makeAddr("nonMember");
+
+        // Strictly verify the custom OpenZeppelin error with exact parameters
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IGovernor.GovernorInsufficientProposerVotes.selector, nonMember, 0, PROPOSAL_THRESHOLD
+            )
+        );
+        _propose(42, nonMember);
+    }
+
+    function test_Propose_VotingDelayElapsesBeforeActive() external {
+        uint256 proposalId = _propose(42, alice);
+
+        // Still Pending immediately after proposing
+        assertEq(uint256(governor.state(proposalId)), uint256(IGovernor.ProposalState.Pending));
+
+        // Advance past the voting delay
+        vm.roll(block.number + VOTING_DELAY + 1);
+
+        // Now Active and ready for votes
+        assertEq(uint256(governor.state(proposalId)), uint256(IGovernor.ProposalState.Active));
     }
 }
