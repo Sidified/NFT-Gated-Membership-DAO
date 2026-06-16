@@ -346,6 +346,36 @@ contract MembershipGovernorTest is Test {
         _voteFor(proposalId, alice);
     }
 
+    function test_Vote_NonMemberVoteDoesNotRevertButHasZeroWeight() external {
+        uint256 proposalId = _propose(42, alice);
+        _advanceToActive();
+
+        address nonMember = makeAddr("nonMember");
+
+        // Act: Non-member attempts to vote. Because of the `if (tokenId != 0)` defensive guard,
+        // this call should succeed silently instead of violently crashing.
+        _voteFor(proposalId, nonMember);
+
+        // Assert: The vote registered exactly 0 weight, proving they had no influence
+        (uint256 againstVotes, uint256 forVotes, uint256 abstainVotes) = governor.proposalVotes(proposalId);
+        assertEq(forVotes, 0, "Non-member vote should carry 0 weight");
+        assertEq(againstVotes, 0, "Against votes should be 0");
+        assertEq(abstainVotes, 0, "Abstain votes should be 0");
+    }
+
+    function test_Vote_MultipleVotersAccumulate() external {
+        uint256 proposalId = _propose(42, alice);
+        _advanceToActive();
+
+        // Act: Alice (10) and Bob (20) vote For
+        _voteFor(proposalId, alice);
+        _voteFor(proposalId, bob);
+
+        // Assert: Their weights perfectly combine
+        (, uint256 forVotes,) = governor.proposalVotes(proposalId);
+        assertEq(forVotes, 30, "Combined votes should be 30 (Alice 10 + Bob 20)");
+    }
+
     //// PROPOSAL LIFECYCLE TESTS ////
 
     function test_Lifecycle_SuccessfulProposalReachesSucceeded() external {
@@ -377,6 +407,22 @@ contract MembershipGovernorTest is Test {
             uint256(governor.state(proposalId)),
             uint256(IGovernor.ProposalState.Defeated),
             "Proposal should be Defeated"
+        );
+    }
+
+    function test_Lifecycle_QuorumFailureShowsDefeated() external {
+        uint256 proposalId = _propose(42, alice);
+        _advanceToActive();
+
+        // No one votes!
+        // Quorum requires 4 votes.
+        _advancePastVoting();
+
+        // Assert: Fails quorum requirement and goes to Defeated.
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Defeated),
+            "Proposal should fail due to lack of quorum"
         );
     }
 
