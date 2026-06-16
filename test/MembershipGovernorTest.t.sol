@@ -7,6 +7,7 @@ import {MembershipNFT} from "src/MembershipNFT.sol";
 import {MerkleClaim} from "src/MerkleClaim.sol";
 import {MembershipGovernor} from "src/MembershipGovernor.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {IGovernor} from "@openzeppelin/contracts/governance/IGovernor.sol";
 import {Box} from "src/Box.sol";
 
 contract MembershipGovernorTest is Test {
@@ -85,7 +86,6 @@ contract MembershipGovernorTest is Test {
         timelock = new TimelockController(MIN_TIMELOCK_DELAY, emptyArr, emptyArr, deployer);
 
         // STEP 3: Compute predicted MerkleClaim address
-        // Deployer nonce has incremented once due to Timelock. NFT is next, MerkleClaim is after (+1).
         address predictedMerkleClaim = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 1);
 
         // STEP 4: Deploy MembershipNFT and MerkleClaim
@@ -102,7 +102,6 @@ contract MembershipGovernorTest is Test {
         nft.setGovernor(address(governor));
 
         // STEP 7: Configure Timelock roles
-        // Deployer currently holds DEFAULT_ADMIN_ROLE on the timelock
         bytes32 proposerRole = timelock.PROPOSER_ROLE();
         bytes32 executorRole = timelock.EXECUTOR_ROLE();
 
@@ -147,6 +146,40 @@ contract MembershipGovernorTest is Test {
         merkleClaim.claim(claimant, votingPower, proof, v, r, sigS);
     }
 
+    // Returns the components needed to submit a proposal to the Governor
+    function _buildBoxProposal(uint256 valueToStore)
+        internal
+        view
+        returns (address[] memory targets, uint256[] memory values, bytes[] memory calldatas, string memory description)
+    {
+        targets = new address[](1);
+        targets[0] = address(box);
+
+        values = new uint256[](1);
+        values[0] = 0;
+
+        calldatas = new bytes[](1);
+        calldatas[0] = abi.encodeWithSelector(Box.store.selector, valueToStore);
+
+        // We use vm.toString to make the description unique for the given value
+        description = string(abi.encodePacked("Set box value to ", vm.toString(valueToStore)));
+    }
+
+    // Submits the proposal as a specified user and returns the Proposal ID
+    function _propose(uint256 valueToStore, address proposer) internal returns (uint256 proposalId) {
+        (address[] memory targets, uint256[] memory values, bytes[] memory calldatas, string memory description) =
+            _buildBoxProposal(valueToStore);
+
+        vm.prank(proposer);
+        proposalId = governor.propose(targets, values, calldatas, description);
+    }
+
+    // Helper to cast a vote. Support values: 0=Against, 1=For, 2=Abstain
+    function _voteForOrAgainst(uint256 proposalId, address voter, uint8 support) internal {
+        vm.prank(voter);
+        governor.castVote(proposalId, support);
+    }
+
     //// TESTS ////
 
     function test_Setup_AllContractsWiredCorrectly() external view {
@@ -159,7 +192,6 @@ contract MembershipGovernorTest is Test {
 
         assertEq(box.owner(), address(timelock), "Timelock does not own Box");
 
-        // Verify all claimants successfully minted and have voting power
         assertEq(nft.getVotes(alice), 10, "Alice votes mismatch");
         assertEq(nft.getVotes(bob), 20, "Bob votes mismatch");
         assertEq(nft.getVotes(charlie), 30, "Charlie votes mismatch");
@@ -167,11 +199,26 @@ contract MembershipGovernorTest is Test {
     }
 
     function test_Setup_ClaimantsCanQueryHistoricalVotes() external view {
-        // Because we rolled to block.number + 1 in setUp, the snapshot at block.number - 1
-        // should accurately reflect the voting power recorded during the claim phase.
         uint256 snapshotBlock = block.number - 1;
 
         assertEq(nft.getPastVotes(alice, snapshotBlock), 10, "Alice historical checkpoint mismatch");
         assertEq(nft.getPastVotes(bob, snapshotBlock), 20, "Bob historical checkpoint mismatch");
+    }
+
+    //// PROPOSAL CREATION TESTS ////
+
+    function test_Propose_MemberCanCreateProposal() external {
+        // 1. Alice proposes setting the box value to 42
+        uint256 proposalId = _propose(42, alice);
+
+        // 2. Verify the Proposal is in the 'Pending' state right after creation
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Pending),
+            "Proposal state should be Pending"
+        );
+
+        // 3. Verify the proposer identity is correctly recorded as Alice
+        assertEq(governor.proposalProposer(proposalId), alice, "Proposal proposer should be Alice");
     }
 }
