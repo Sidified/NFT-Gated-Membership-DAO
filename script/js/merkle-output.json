@@ -1,0 +1,33 @@
+{
+  "root": "0x87103e673fa76d1dc759138b80f11019d1fd238ecd6ecfd178ca871099c5f81f",
+  "claimants": {
+    "0xa19da2097332E962faabd6171587bcE04B7878Ef": {
+      "votingPower": 10,
+      "proof": [
+        "0xec389723def925b7fea78d0c475b2b38bd2c018495847bef6f3082ad7e26a2bf",
+        "0x67992697db6f66772de4612a329c12f38e5bc0f17946c82be04b831ce2fb0319"
+      ]
+    },
+    "0x70997970C51812dc3A010C7d01b50e0d17dc79C8": {
+      "votingPower": 20,
+      "proof": [
+        "0x21c8bcc17184532a2341809dad860dc41325655c37a92aab88f2e432a68b59d2",
+        "0xae578b6f98b5ac4fcbefb4fb85d72c9e0708fdfa3ad93ad2b8fc694414fcccbc"
+      ]
+    },
+    "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC": {
+      "votingPower": 30,
+      "proof": [
+        "0xe8d74cf5d90dcccb08887c8f1d569bf20a5e54be121ed2a9f963c174174a3ce9",
+        "0x67992697db6f66772de4612a329c12f38e5bc0f17946c82be04b831ce2fb0319"
+      ]
+    },
+    "0x90F79bf6EB2c4f870365E785982E1f101E93b906": {
+      "votingPower": 40,
+      "proof": [
+        "0x58c023fe80873a387b3f2b4d31b7edcc5e15a305af8fd7098d5be7ace4300ad9",
+        "0xae578b6f98b5ac4fcbefb4fb85d72c9e0708fdfa3ad93ad2b8fc694414fcccbc"
+      ]
+    }
+  }
+}
