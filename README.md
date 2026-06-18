@@ -117,14 +117,6 @@ Verified invariants:
 * Boundary conditions
 * Revert paths
 
-## Cross-Environment Compatibility
-
-OpenZeppelin's Node.js `@openzeppelin/merkle-tree` library was cross-verified against Solidity's `MerkleProof` implementation through direct bridge testing:
-
-```text
-MerkleCompatibilityTest.t.sol
-```
-
 ---
 
 # How to Interact (Sepolia)
