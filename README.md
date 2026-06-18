@@ -4,6 +4,8 @@ A complete on-chain DAO featuring Merkle-verified airdrop claims, soulbound gove
 
 Built with **Foundry** and **OpenZeppelin v5**.
 
+*For detailed architecture, accounting models, invariants, and threat analysis, see [DESIGN.md](./DESIGN.md).*
+
 ---
 
 # Live on Sepolia Testnet
