@@ -213,24 +213,6 @@ This avoids the additional gas overhead of full enumeration.
 
 ---
 
-## Multiple NFTs Per Address
-
-The original design allowed multiple NFTs per address.
-
-The protocol was later refactored to enforce:
-
-```text
-1 Address = 1 Membership NFT
-```
-
-Benefits:
-
-* Simpler governance logic.
-* O(1) voting power lookup.
-* Elimination of vote double-counting vulnerabilities.
-
----
-
 # Design Decisions & Trade-Offs
 
 ## One NFT Per Address
@@ -566,7 +548,7 @@ Treasury assets may leave the Timelock only through:
 Queued Proposal → Timelock Delay → Successful Execution
 ```
 
-**Enforced by:** OpenZeppelin Timelock role-based access control. Only authorized executors may execute queued operations after the configured delay.
+**Enforced by:** OpenZeppelin Timelock role-based access control.
 
 ---
 
