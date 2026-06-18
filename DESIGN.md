@@ -1,77 +1,692 @@
-# NFT-Gated Membership DAO: Design Document
+# NFT-Gated Membership DAO — Design Document
 
 ## Problem Statement
-**The Setting:** A community bootstrapping a DAO. A pre-verified list of contributors (the VIP list) claims free, soulbound membership NFTs that grant governance voting power. The NFT's appearance dynamically upgrades on-chain based on governance participation. Members govern a treasury via a standard propose -> vote -> timelock -> execute flow.
 
-**The Actors:**
-- *Eligible Claimant:* On the Merkle list. Signs EIP-712 claim message. Pays 0 gas.
-- *Relayer:* Submits the claim transaction. Pays gas. No economic reward.
-- *Member:* Holds the NFT. Can propose, vote, and trigger queued executions.
+### The Setting
 
-**What this protocol is NOT:** A tradeable ERC20 governance token, an upgradable system, or a fundraiser. Not a stackable membership. Each address can hold at most one Membership NFT.
+A community is bootstrapping a DAO.
 
-## Architecture
-1. **TreasuryToken.sol:** Fresh, standard ERC20 representing the DAO treasury. (Foundational)
-2. **MembershipNFT.sol:** Soulbound ERC721. Tracks custom voting power per token. Generates dynamic on-chain SVG based on vote count. Enforces strictly one NFT per address. (Foundational)
-3. **MerkleClaim.sol:** Validates off-chain EIP-712 signatures against an immutable Merkle root to authorize gasless minting. (Depends on MembershipNFT)
-4. **TimelockController.sol:** Standard OZ vault holding treasury assets with a mandatory execution delay. (Standard OZ)
-5. **GovernorContract.sol:** Core OpenZeppelin Governor logic customized to read voting power from MembershipNFT. (Depends on MembershipNFT + Timelock)
+A pre-verified list of contributors (the **VIP List**) can claim free, soulbound Membership NFTs that grant governance voting power. The NFT's appearance dynamically upgrades on-chain based on governance participation.
 
-## State Model
-**MembershipNFT:**
-- `mapping(uint256 tokenId => uint256) private s_votingPower` (Custom voting weight per NFT)
-- `mapping(uint256 tokenId => uint256) private s_votesCast` (Drives the dynamic SVG tier)
-- `mapping(address account => uint256) private s_tokenIdOf` (0 if unminted; tokenIds start at 1. O(1) lookup to find user's token)
-- Token counter for sequential IDs (Starts at 1, not 0, to disambiguate the `s_tokenIdOf` mapping).
-- Address of authorized minter (`MerkleClaim`).
+Members govern a treasury through a standard:
 
-**MerkleClaim:**
-- `bytes32 immutable i_merkleRoot` (Set at deploy).
-- `address immutable i_membershipNFT`.
-- `mapping(address claimant => bool hasClaimed)` (Replay protection).
-- Standard EIP-712 domain state (including chainId and contract address).
+```text
+Propose → Vote → Timelock → Execute
+```
 
-**GovernorContract & TimelockController:**
-- Standard OpenZeppelin state.
+governance lifecycle.
 
-## Functions
-**MembershipNFT:**
-- `mint(address to, uint256 votingPower)`: Only callable by MerkleClaim. Reverts if `to` already has an NFT. Auto-delegates to the minter.
-- `recordVote(uint256 tokenId)`: Only callable by Governor. Increments `votesCast`.
-- `tokenURI(uint256 tokenId)`: Returns Base64 JSON with SVG based on `votesCast`.
-- `_update(address to, uint256 tokenId, address auth)`: Overridden to revert when `from != address(0)` (blocks transfers/burns while allowing mints).
-- `_getVotingUnits(address account)`: Overridden to read from custom `s_votingPower` via `s_tokenIdOf`.
-- `tokenIdOf(address account)`: Returns `uint256` - Returns the specific tokenId for an account, or 0 if they hold no NFT.
+### Actors
 
-**MerkleClaim:**
-- `claim(...)`: Relayer calls this with Merkle Proof and EIP-712 signature. Calls NFT `mint`.
-- `getMessageHash(...)`: Generates the digest for the claimant to sign.
+#### Eligible Claimant
 
-**GovernorContract:**
-- `_castVote(...)`: Overridden internal hook to call `MembershipNFT.recordVote(...)`.
+* Included in the Merkle allowlist.
+* Signs an EIP-712 claim message.
+* Pays **0 gas**.
 
-## Invariants
-1. **One-claim-per-address:** `hasClaimed` is strictly monotonic.
-2. **Conservation of Power:** Sum of all minted `votingPower` == Sum of `votingPower` in claimed Merkle leaves.
-3. **Soulbound Integrity:** Token ownership is immutable after block X. `_update` blocks transfers/burns.
-4. **Vote Monotonicity:** `votesCast` for any token is non-decreasing.
-5. **Treasury Safety:** Funds only leave the Timelock via successful, queued DAO proposals.
-6. **Signature Replay Protection:** Signatures cannot be reused on the same chain (mapping check) or across forks (Domain Separator).
-7. **Supply-Claim Consistency & One-NFT-Per-Address:** The number of minted NFTs equals the number of claimants who have successfully claimed (`totalSupply(MembershipNFT) == count(addresses where hasClaimed == true)`). No address ever holds more than one MembershipNFT. `balanceOf(account) <= 1` for all accounts.
+#### Relayer
 
-## Threat Model
-1. **Cross-Chain Replay:** Mitigated by EIP-712 `chainId` in domain separator.
-2. **Same-Chain Replay:** Mitigated by `hasClaimed[account]` check.
-3. **Merkle Forgery:** Mitigated by OZ double-hashing leaf structure.
-4. **Flash-Loan Voting:** Mitigated by ERC721Votes checkpointing mechanism (and soulbound illiquidity).
-5. **Soulbound Bypass:** Mitigated by strictly overriding the `_update` OZ v5 hook to revert on transfers.
-6. **Unauthorized Minting:** Mitigated by `onlyMinter` modifier locking mints to `MerkleClaim`.
-7. **Dormant Voting Power:** ERC721Votes requires explicit delegation to activate voting power. Holders who forget to delegate are silently disenfranchised, allowing minority capture of governance. Mitigated by auto-delegating to `msg.sender` inside the `mint` function.
-8. **EIP-712 Fork Malleability:** Mitigated by including `address(this)` in the domain separator.
-9. **Front-running Claims:** Expected behavior. Relayer pays gas, but NFT still goes to the verified claimant.
-10. **Double Minting:** A bug or malicious caller mints two NFTs to the same address. Mitigation: `mint` reverts if `balanceOf(to) > 0` (or equivalently, if `s_tokenIdOf[to] != 0`). Enforced at the start of mint, before any state changes.
+* Submits claim transactions on behalf of users.
+* Pays gas costs.
+* Receives no economic reward.
 
-## Intentional Omissions
-- No Upgradability (Proxy patterns deferred to Project 4).
-- No Transferability (Soulbound strictness).
-- No Public Mint or Token Sale (Treasury seeded at deploy).
+#### Member
+
+* Holds a Membership NFT.
+* Can propose governance actions.
+* Can vote on proposals.
+* Can queue and execute approved proposals.
+
+### What This Protocol Is Not
+
+The protocol intentionally excludes:
+
+* Tradeable ERC20 governance tokens.
+* Upgradeable contracts.
+* Fundraising mechanisms.
+* Stackable memberships.
+
+Each address may hold **at most one Membership NFT**.
+
+---
+
+# Architecture
+
+## Contracts
+
+### TreasuryToken.sol
+
+Standard ERC20 token representing DAO treasury assets.
+
+**Role:** Foundational
+
+---
+
+### MembershipNFT.sol
+
+Soulbound ERC721 membership token.
+
+Responsibilities:
+
+* Tracks custom voting power.
+* Tracks governance participation.
+* Generates dynamic on-chain SVG metadata.
+* Enforces one NFT per address.
+
+**Role:** Foundational
+
+---
+
+### MerkleClaim.sol
+
+Gasless claim contract.
+
+Responsibilities:
+
+* Verifies Merkle proofs.
+* Verifies EIP-712 signatures.
+* Authorizes NFT minting.
+
+**Depends On:** MembershipNFT
+
+---
+
+### TimelockController.sol
+
+OpenZeppelin Timelock contract.
+
+Responsibilities:
+
+* Holds treasury assets.
+* Enforces mandatory execution delay.
+
+**Role:** Standard OpenZeppelin Module
+
+---
+
+### MembershipGovernor.sol
+
+Customized OpenZeppelin Governor.
+
+Responsibilities:
+
+* Reads voting power from MembershipNFT.
+* Manages proposals and voting.
+* Queues and executes through Timelock.
+
+**Depends On:**
+
+* MembershipNFT
+* TimelockController
+
+---
+
+### Box.sol
+
+Simple target contract used to demonstrate governance execution.
+
+**Role:** External State Target
+
+---
+
+## Interfaces
+
+### IMembershipNFT
+
+Exposes minting functionality only.
+
+Consumed by:
+
+* MerkleClaim
+
+### IMembershipVoter
+
+Exposes voting-related functionality only.
+
+Consumed by:
+
+* MembershipGovernor
+
+This separation enforces the **Principle of Least Privilege**.
+
+---
+
+# Intentional Omissions
+
+## Upgradeability
+
+No proxy patterns are used.
+
+Contracts are immutable after deployment.
+
+Future upgradeability experiments are deferred to separate projects exploring:
+
+* UUPS
+* Beacon Proxies
+
+---
+
+## Transferability
+
+Membership NFTs are strictly soulbound.
+
+The following transfer paths are disabled:
+
+* `transferFrom`
+* `safeTransferFrom`
+* Any alternative transfer mechanism
+
+---
+
+## Public Minting
+
+No public mint function exists.
+
+All minting must pass through:
+
+1. Merkle proof verification.
+2. EIP-712 signature verification.
+
+---
+
+## Token Sale
+
+The protocol includes no funding mechanism.
+
+Treasury assets are seeded during deployment.
+
+---
+
+## ERC721Enumerable
+
+OpenZeppelin's `ERC721Enumerable` extension is intentionally omitted.
+
+Since each address may hold only one NFT, the protocol uses:
+
+```solidity
+mapping(address => uint256) s_tokenIdOf;
+```
+
+for O(1) ownership lookups.
+
+This avoids the additional gas overhead of full enumeration.
+
+---
+
+## Multiple NFTs Per Address
+
+The original design allowed multiple NFTs per address.
+
+The protocol was later refactored to enforce:
+
+```text
+1 Address = 1 Membership NFT
+```
+
+Benefits:
+
+* Simpler governance logic.
+* O(1) voting power lookup.
+* Elimination of vote double-counting vulnerabilities.
+
+---
+
+# Design Decisions & Trade-Offs
+
+## One NFT Per Address
+
+The protocol originally supported multiple NFTs per wallet.
+
+This was redesigned to enforce a strict one-to-one relationship because:
+
+1. Membership represents identity rather than balance.
+2. Voting lookups become O(1).
+3. Double-counting attack surfaces disappear.
+
+---
+
+## Token IDs Start at 1
+
+Token IDs intentionally begin at `1`.
+
+```solidity
+s_tokenIdOf[account] == 0
+```
+
+acts as a sentinel value meaning:
+
+```text
+No NFT Owned
+```
+
+Starting token IDs at 1 guarantees that token ownership can never be confused with an uninitialized mapping value.
+
+---
+
+## Interface Segregation
+
+Two separate interfaces are maintained:
+
+### IMembershipNFT
+
+Used only by MerkleClaim.
+
+### IMembershipVoter
+
+Used only by MembershipGovernor.
+
+Benefits:
+
+* Reduced coupling.
+* Smaller attack surface.
+* Principle of Least Knowledge.
+
+Cost:
+
+* One additional interface file.
+
+---
+
+## `_safeMint` Instead of `_mint`
+
+The protocol intentionally uses:
+
+```solidity
+_safeMint(...)
+```
+
+instead of:
+
+```solidity
+_mint(...)
+```
+
+This ensures contract recipients correctly implement:
+
+```solidity
+IERC721Receiver
+```
+
+The trade-off is potential mint failures for incompatible delegated contracts (such as certain EIP-7702 configurations).
+
+The benefit is safer NFT delivery semantics.
+
+---
+
+## Circular Dependency Deployment
+
+MembershipNFT and MerkleClaim reference each other immutably.
+
+This dependency is resolved during deployment using:
+
+```solidity
+vm.computeCreateAddress(...)
+```
+
+The deployment script predicts the future MerkleClaim address before MembershipNFT deployment.
+
+The script then asserts the prediction matches the actual deployment address.
+
+---
+
+# State Model
+
+## MembershipNFT
+
+### Voting Power
+
+```solidity
+mapping(uint256 => uint256) private s_votingPower;
+```
+
+Stores custom voting weight per NFT.
+
+---
+
+### Governance Participation
+
+```solidity
+mapping(uint256 => uint256) private s_votesCast;
+```
+
+Tracks votes cast and drives SVG evolution.
+
+---
+
+### Ownership Lookup
+
+```solidity
+mapping(address => uint256) private s_tokenIdOf;
+```
+
+Provides O(1) token lookup.
+
+Returns:
+
+* Token ID if owned.
+* `0` if no NFT exists.
+
+---
+
+### Additional State
+
+* Sequential token counter (starts at 1).
+* Authorized minter address (`MerkleClaim`).
+
+---
+
+## MerkleClaim
+
+### Merkle Root
+
+```solidity
+bytes32 immutable i_merkleRoot;
+```
+
+Set during deployment.
+
+---
+
+### NFT Contract Reference
+
+```solidity
+address immutable i_membershipNFT;
+```
+
+---
+
+### Replay Protection
+
+```solidity
+mapping(address => bool) hasClaimed;
+```
+
+---
+
+### EIP-712 State
+
+Includes:
+
+* Chain ID
+* Contract Address
+* Domain Separator
+
+---
+
+## Governor & Timelock
+
+Maintain standard OpenZeppelin Governor state.
+
+---
+
+# Core Functions
+
+## MembershipNFT
+
+### `mint(address to, uint256 votingPower)`
+
+* Only callable by MerkleClaim.
+* Reverts if the recipient already owns an NFT.
+* Automatically self-delegates voting power.
+
+---
+
+### `recordVote(uint256 tokenId)`
+
+* Only callable by MembershipGovernor.
+* Increments governance participation count.
+
+---
+
+### `tokenURI(uint256 tokenId)`
+
+Returns Base64-encoded JSON metadata containing dynamic SVG artwork derived from governance participation.
+
+---
+
+### `_update(address to, uint256 tokenId, address auth)`
+
+Overridden to:
+
+* Allow minting (`from == address(0)`).
+* Revert on transfers.
+* Revert on burns.
+
+This enforces soulbound behavior.
+
+---
+
+### `_getVotingUnits(address account)`
+
+Reads voting power by first looking up the user's token ID via `s_tokenIdOf`, then querying `s_votingPower[tokenId]`.
+
+Returns `0` if the account does not own a Membership NFT.
+
+---
+
+### `tokenIdOf(address account)`
+
+Returns:
+
+* The Membership NFT token ID.
+* `0` if the account owns no NFT.
+
+---
+
+## MerkleClaim
+
+### `claim(...)`
+
+Called by a relayer.
+
+Validates:
+
+* Merkle proof
+* EIP-712 signature
+
+Then mints the Membership NFT.
+
+---
+
+### `getMessageHash(...)`
+
+Returns the EIP-712 digest signed by claimants.
+
+---
+
+## MembershipGovernor
+
+### `_castVote(...)`
+
+Customized Governor hook.
+
+Records governance participation inside MembershipNFT whenever a vote is successfully cast.
+
+---
+
+# Invariants
+
+## One Claim Per Address
+
+```text
+hasClaimed[account]
+```
+
+is strictly monotonic.
+
+Once true, it can never become false.
+
+**Enforced by:** `claim()` sets `hasClaimed[account] = true` after successful verification, and no code path resets the value.
+
+**Verified by:** `invariant_HasClaimedIsMonotonic`.
+
+---
+
+## Conservation of Voting Power
+
+The total voting power minted must equal the total voting power represented by claimed Merkle leaves.
+
+**Enforced by:** Voting power is derived directly from Merkle leaf data and can only be minted after successful Merkle proof and EIP-712 signature verification. Arbitrary voting power cannot be created.
+
+---
+
+## Soulbound Integrity
+
+NFT ownership is immutable after minting.
+
+Transfers and burns cannot occur.
+
+**Enforced by:** The overridden `_update()` function reverts whenever `from != address(0)`, blocking all transfers and burns while allowing mints.
+
+**Verified by:** `test_Soulbound_*` unit tests.
+
+---
+
+## Vote Monotonicity
+
+```text
+votesCast[tokenId]
+```
+
+is non-decreasing.
+
+Votes may increase but never decrease.
+
+**Enforced by:** `recordVote()` only increments vote counts. No decrement path exists.
+
+**Verified by:** `invariant_VotesCastMatchesExpected`.
+
+---
+
+## Treasury Safety
+
+Treasury assets may leave the Timelock only through:
+
+```text
+Queued Proposal → Timelock Delay → Successful Execution
+```
+
+**Enforced by:** OpenZeppelin Timelock role-based access control. Only authorized executors may execute queued operations after the configured delay.
+
+---
+
+## Signature Replay Protection
+
+Signatures cannot be replayed:
+
+* On the same chain
+* Across chains
+* Across forks
+
+**Enforced by:** The `hasClaimed` replay-protection mapping combined with the EIP-712 domain separator containing both `chainId` and `address(this)`.
+
+---
+
+## Supply-Claim Consistency & One-NFT-Per-Address
+
+The following must always hold:
+
+```text
+totalSupply == claimedMembers
+```
+
+and
+
+```text
+balanceOf(account) <= 1
+```
+
+for every account.
+
+**Enforced by:** Each successful claim mints exactly one NFT and increments supply. Minting reverts if an account already owns an NFT.
+
+**Verified by:**
+
+* `invariant_SupplyMatchesClaimedCount`
+* `invariant_OneNFTPerAddress`
+
+---
+
+# Threat Model
+
+## Cryptographic Threats
+
+### Cross-Chain Replay
+
+**Mitigation:** EIP-712 domain includes `chainId`.
+
+---
+
+### Same-Chain Replay
+
+**Mitigation:** `hasClaimed` replay protection mapping.
+
+---
+
+### Fork Replay
+
+**Mitigation:** Contract address included in the EIP-712 domain separator.
+
+---
+
+### Merkle Forgery
+
+**Mitigation:** OpenZeppelin's double-hashed Merkle leaf structure prevents second-preimage attacks.
+
+---
+
+### Signature Malleability
+
+**Mitigation:** OpenZeppelin's ECDSA implementation rejects high-`s` signatures.
+
+---
+
+## Authorization Threats
+
+### Unauthorized Minting
+
+**Mitigation:** `onlyMinter` restriction locks minting to the MerkleClaim contract.
+
+---
+
+### Soulbound Bypass
+
+**Mitigation:** The `_update()` override reverts all transfer attempts.
+
+---
+
+### Double Minting
+
+**Mitigation:** Minting reverts if the recipient already owns a Membership NFT before any state mutation occurs.
+
+---
+
+## Governance Threats
+
+### Flash-Loan Voting
+
+**Mitigation:** ERC721Votes checkpointing combined with soulbound illiquidity. NFTs cannot be borrowed or transferred during voting.
+
+---
+
+### Dormant Voting Power
+
+ERC721Votes normally requires explicit delegation.
+
+Users who forget to delegate become unintentionally disenfranchised.
+
+**Mitigation:** Automatic self-delegation during minting.
+
+---
+
+### Front-Running Claims
+
+Expected behavior.
+
+The relayer may submit the transaction first, but ownership always resolves to the cryptographically verified claimant.
+
+---
+
+### Treasury Drain
+
+**Mitigation:** Timelock delay provides a mandatory community review and cancellation window before execution.
